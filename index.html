@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Eco Ruta — Misión 1 | Sendel el Coatí Guardián</title>
+<link rel="icon" type="image/x-icon" href="assets/sendel-icon.ico" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="confetti-layer" aria-hidden="true"></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge">🦝</span>
+        <div>
+          <h1>Eco Ruta</h1>
+          <p>Simulador de sensor de proximidad — Parque Nacional Canaima</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="difficulty-toggle" role="group" aria-label="Dificultad">
+          <button class="diff-toggle-btn" data-difficulty="facil" title="6 a 8 años · 4 obstáculos">🐣 Fácil</button>
+          <button class="diff-toggle-btn" data-difficulty="dificil" title="9 a 12 años · 8 obstáculos">🌟 Avanzado</button>
+        </div>
+        <button id="btn-panel-toggle" class="btn btn-ghost">🧩 Panel de Sendel</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="mission-bubble" id="mission-title">MISIÓN 1: ECO RUTA</div>
+
+      <div class="scene-wrap">
+        <canvas id="scene" width="1200" height="700"></canvas>
+
+        <div class="semaforo" aria-label="Indicador de proximidad">
+          <span class="sem-label">SENSOR</span>
+          <div class="led led-rojo" title="Rojo: obstáculo muy cerca"></div>
+          <div class="led led-amarillo" title="Amarillo: obstáculo aproximándose"></div>
+          <div class="led led-verde" title="Verde: camino libre"></div>
+          <span class="hud-distance" id="hud-distance">— cm</span>
+        </div>
+
+        <div class="hud-top-left">
+          <div class="hud-state-label">ESTADO</div>
+          <div class="hud-state-value state-verde" id="hud-state">VERDE</div>
+        </div>
+
+        <div id="toast" class="toast"></div>
+      </div>
+
+      <div class="progress-row">
+        <span>INICIO</span>
+        <div class="progress-track">
+          <div id="hud-progress-bar" class="progress-fill"></div>
+        </div>
+        <span id="hud-progress-pct">0%</span>
+        <span>META</span>
+      </div>
+
+      <div class="controls">
+        <button id="btn-back" class="btn btn-icon" title="Retroceder (←)">◀</button>
+        <button id="btn-forward" class="btn btn-primary" title="Avanzar (→)">Avanzar ▶</button>
+        <button id="btn-autoplay" class="btn btn-accent" title="Modo automático (espacio)">▶ Auto</button>
+        <button id="btn-reset" class="btn btn-ghost" title="Reiniciar">↺ Reiniciar</button>
+      </div>
+      <p class="hint">Controles: <kbd>→</kbd>/<kbd>←</kbd> mover · <kbd>espacio</kbd> modo automático · cuando el semáforo esté 🔴, ¡resuelve el reto para ayudar a Sendel!</p>
+    </main>
+
+    <aside id="side-panel" class="side-panel">
+      <div class="side-tabs">
+        <button class="tab-btn active" data-tab="programar">🧩 Programar</button>
+        <button class="tab-btn" data-tab="ajustes">⚙️ Ajustes</button>
+        <button class="tab-btn" data-tab="registro">📜 Registro</button>
+      </div>
+
+      <div class="tab-panel" data-tab="programar" id="tab-programar">
+        <div class="terminal-chrome">
+          <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+          <span class="terminal-title">Terminal de Sendel</span>
+        </div>
+        <div class="challenge-idle" id="challenge-idle">
+          <p>👀 Cuando Sendel encuentre un obstáculo y el semáforo se ponga <b class="txt-rojo">ROJO</b>, aquí aparecerá un reto para programarlo con bloques.</p>
+        </div>
+        <div class="challenge-active" id="challenge-active" hidden>
+          <p class="challenge-obstacle" id="challenge-obstacle-label">🎯 Obstáculo: —</p>
+          <div class="mini-workspace">
+            <div class="hat-block">🚦 Cuando el semáforo esté <span class="led-chip"></span> ROJO</div>
+            <div class="slot" id="challenge-slot">
+              <span class="slot-placeholder">Arrastra un bloque aquí ⬇</span>
+            </div>
+          </div>
+          <div class="block-palette" id="block-palette"></div>
+          <button id="btn-run-program" class="btn btn-primary btn-run" disabled>▶ Ejecutar programa</button>
+          <p class="challenge-feedback" id="challenge-feedback"></p>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab="ajustes" id="tab-ajustes" hidden>
+        <h2>Calibración del sensor</h2>
+        <label class="slider-row">
+          <span>Rango máximo <b id="cfg-rango-val">180 cm</b></span>
+          <input type="range" id="cfg-rango" min="60" max="250" step="5" value="180" />
+        </label>
+        <label class="slider-row">
+          <span>Umbral amarillo <b id="cfg-amarillo-val">40 cm</b></span>
+          <input type="range" id="cfg-amarillo" min="20" max="80" step="1" value="40" />
+        </label>
+        <label class="slider-row">
+          <span>Umbral rojo <b id="cfg-rojo-val">15 cm</b></span>
+          <input type="range" id="cfg-rojo" min="5" max="35" step="1" value="15" />
+        </label>
+        <label class="slider-row">
+          <span>Velocidad auto <b id="cfg-speed-val">10 cm/tick</b></span>
+          <input type="range" id="cfg-speed" min="4" max="24" step="1" value="10" />
+        </label>
+      </div>
+
+      <div class="tab-panel" data-tab="registro" id="tab-registro" hidden>
+        <h2>Registro (serial monitor)</h2>
+        <ul id="log-list" class="log-list"></ul>
+      </div>
+    </aside>
+  </div>
+
+  <div id="victory-modal" class="modal">
+    <div class="modal-card victory-card">
+      <img src="assets/sendel.png" alt="Sendel" class="victory-mascot-img" />
+      <h2 class="victory-title">¡Lo lograste! 🎉</h2>
+      <p>Sendel llegó a salvo al Parque Nacional Canaima.</p>
+      <ul id="victory-stats" class="victory-stats"></ul>
+      <div class="modal-actions">
+        <button id="btn-victory-confetti" class="btn btn-warn">🎉 ¡Más confeti!</button>
+        <button id="btn-victory-restart" class="btn btn-primary">Jugar de nuevo</button>
+        <button id="btn-victory-close" class="btn btn-ghost">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/backend/sensor-core.js"></script>
+  <script src="js/backend/mission-data.js"></script>
+  <script src="js/frontend/renderer.js"></script>
+  <script src="js/frontend/block-challenge.js"></script>
+  <script src="js/frontend/audio.js"></script>
+  <script src="js/frontend/app.js"></script>
+</body>
+</html>
