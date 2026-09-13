@@ -20,6 +20,57 @@ body {
   min-height: 100vh;
 }
 
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(160deg, #eef3ea, #d7ead9);
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+.welcome-screen.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+.welcome-card {
+  position: relative;
+  background: #fff;
+  border-radius: 24px;
+  padding: 34px 32px;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+}
+.welcome-worry {
+  position: absolute;
+  top: 22px;
+  right: 34px;
+  font-size: 30px;
+  animation: welcome-worry-float 2s ease-in-out infinite;
+}
+@keyframes welcome-worry-float {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-6px) rotate(4deg); }
+}
+.welcome-sendel { width: 120px; margin: 0 auto 6px; display: block; }
+.welcome-card h1 { margin: 8px 0 2px; font-size: 24px; }
+.welcome-mission {
+  color: var(--verde);
+  font-weight: 800;
+  margin: 0 0 16px;
+  letter-spacing: 0.3px;
+}
+.welcome-text {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+  text-align: left;
+  margin: 0 0 14px;
+}
+.btn-start { width: 100%; margin-top: 8px; padding: 14px; font-size: 15px; }
+
 .app {
   display: grid;
   grid-template-columns: 1fr 380px;
@@ -723,6 +774,12 @@ kbd {
   .diff-toggle-btn { font-size: 12px; padding: 7px 10px; }
   #btn-panel-toggle { font-size: 12px; padding: 9px 12px; }
   .hint { font-size: 11px; }
+
+  .welcome-card { padding: 26px 20px; }
+  .welcome-sendel { width: 96px; }
+  .welcome-card h1 { font-size: 20px; }
+  .welcome-text { font-size: 13px; }
+  .welcome-worry { top: 16px; right: 22px; font-size: 24px; }
 }
 
 /* Teléfonos muy angostos (320-359px: iPhone SE, gama baja de Android) */
