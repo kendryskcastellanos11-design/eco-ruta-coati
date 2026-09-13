@@ -2,9 +2,19 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Eco Ruta — Misión 1 | Sendel el Coatí Guardián</title>
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png" />
 <link rel="icon" type="image/x-icon" href="assets/sendel-icon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2ec46a" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Eco Ruta" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/styles.css" />
@@ -73,6 +83,7 @@
     <aside id="side-panel" class="side-panel">
       <div class="side-tabs">
         <button class="tab-btn active" data-tab="programar">🧩 Programar</button>
+        <button class="tab-btn" data-tab="esp32">🧠 ESP32</button>
         <button class="tab-btn" data-tab="ajustes">⚙️ Ajustes</button>
         <button class="tab-btn" data-tab="registro">📜 Registro</button>
       </div>
@@ -88,14 +99,80 @@
         <div class="challenge-active" id="challenge-active" hidden>
           <p class="challenge-obstacle" id="challenge-obstacle-label">🎯 Obstáculo: —</p>
           <div class="mini-workspace">
-            <div class="hat-block">🚦 Cuando el semáforo esté <span class="led-chip"></span> ROJO</div>
-            <div class="slot" id="challenge-slot">
-              <span class="slot-placeholder">Arrastra un bloque aquí ⬇</span>
+            <div class="flow-diagram">
+              <div class="flow-node flow-start">
+                <span class="flow-node-icon">🚦</span>
+                <span>Cuando el semáforo esté <span class="led-chip"></span> ROJO</span>
+              </div>
+              <div class="flow-connector" aria-hidden="true">
+                <svg viewBox="0 0 24 40" class="flow-connector-svg"><path d="M12 0 V28" /><path d="M4 22 L12 32 L20 22" /></svg>
+              </div>
+              <div class="flow-node flow-slot-node slot" id="challenge-slot">
+                <span class="slot-placeholder">Arrastra un bloque aquí ⬇</span>
+              </div>
+              <div class="flow-connector" aria-hidden="true">
+                <svg viewBox="0 0 24 40" class="flow-connector-svg"><path d="M12 0 V28" /><path d="M4 22 L12 32 L20 22" /></svg>
+              </div>
+              <div class="flow-node flow-end">
+                <span class="flow-node-icon">🥽</span>
+                <span>Sendel esquiva y sigue camino a <b>Canaima</b></span>
+              </div>
             </div>
           </div>
+          <p class="flow-hint">🧩 Arrastra el bloque correcto para completar el diagrama de flujo del programa de Sendel:</p>
           <div class="block-palette" id="block-palette"></div>
           <button id="btn-run-program" class="btn btn-primary btn-run" disabled>▶ Ejecutar programa</button>
           <p class="challenge-feedback" id="challenge-feedback"></p>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab="esp32" id="tab-esp32" hidden>
+        <h2>Panel ESP32 — el cerebro de Sendel</h2>
+
+        <div class="esp32-board">
+          <div class="esp32-core">
+            <span class="esp32-core-label">ESP32</span>
+            <span class="esp32-core-pulse"></span>
+          </div>
+          <div class="wireless-badges">
+            <div class="wireless-badge" title="Wi-Fi: EcoRuta-Sendel">
+              <span class="badge-dot badge-wifi"></span>
+              <span>📶 Wi-Fi</span>
+            </div>
+            <div class="wireless-badge" title="Bluetooth BLE: Sendel-BLE">
+              <span class="badge-dot badge-ble"></span>
+              <span>🔵 BLE</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="component-grid">
+          <div class="component-card" id="esp32-card-sensor">
+            <span class="component-icon">📡</span>
+            <span class="component-name">HC-SR04</span>
+            <span class="component-value" id="esp32-sensor-value">— cm</span>
+            <span class="component-hint">Sensor de proximidad — los "ojos"</span>
+          </div>
+          <div class="component-card" id="esp32-card-motores">
+            <span class="component-icon motor-icon" id="esp32-motor-icon">⚙️</span>
+            <span class="component-name">DC Gear Motors</span>
+            <span class="component-value" id="esp32-motor-value">Girando</span>
+            <span class="component-hint">Tracción — las "patas"</span>
+          </div>
+          <div class="component-card" id="esp32-card-bateria">
+            <span class="component-icon">🔋</span>
+            <span class="component-name">Li-Ion 18650</span>
+            <span class="component-value" id="esp32-bateria-value">4.1 V</span>
+            <div class="battery-bar"><div class="battery-fill" id="esp32-bateria-fill"></div></div>
+          </div>
+        </div>
+
+        <div class="proximity-sim">
+          <label class="slider-row">
+            <span>🎛️ Simulador de proximidad (HC-SR04) <b id="cfg-sim-val">180 cm</b></span>
+            <input type="range" id="cfg-sim-distancia" min="0" max="200" step="1" value="200" />
+          </label>
+          <p class="hint">Mueve el control para "poner" un obstáculo frente al sensor y mira cómo reacciona el semáforo en tiempo real — igual que haría el ESP32 real.</p>
         </div>
       </div>
 
@@ -144,6 +221,7 @@
   <script src="js/backend/mission-data.js"></script>
   <script src="js/frontend/renderer.js"></script>
   <script src="js/frontend/block-challenge.js"></script>
+  <script src="js/frontend/esp32-panel.js"></script>
   <script src="js/frontend/audio.js"></script>
   <script src="js/frontend/app.js"></script>
 </body>
