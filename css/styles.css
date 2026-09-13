@@ -308,17 +308,33 @@ kbd {
 
 .challenge-obstacle { margin: 0 0 12px; font-weight: 700; color: #f4e9c9; }
 
-.mini-workspace { margin-bottom: 14px; }
-.hat-block {
-  background: #d98a1f;
-  color: #2b1a02;
+.mini-workspace { margin-bottom: 10px; }
+
+/* ---- Diagrama de flujo del reto "Programa a Sendel" ----
+   Cadena vertical de nodos conectados por flechas, para que se lea
+   claramente como un programa: evento -> acción -> resultado. */
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.flow-node {
+  border-radius: 12px;
+  padding: 12px 14px;
   font-weight: 700;
   font-size: 13px;
-  padding: 10px 14px;
-  border-radius: 14px 14px 4px 4px;
+  line-height: 1.35;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+.flow-node-icon { font-size: 18px; flex-shrink: 0; }
+
+.flow-start {
+  background: #d98a1f;
+  color: #2b1a02;
+  border-radius: 14px 14px 6px 6px;
   flex-wrap: wrap;
 }
 .led-chip {
@@ -329,38 +345,78 @@ kbd {
   box-shadow: 0 0 6px 1px rgba(226,60,60,0.7);
   display: inline-block;
 }
+
+.flow-end {
+  background: #1a2b1e;
+  color: #bcd6c1;
+  border-radius: 6px 6px 14px 14px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.flow-connector {
+  display: flex;
+  justify-content: center;
+  margin: -1px 0;
+}
+.flow-connector-svg {
+  width: 22px;
+  height: 30px;
+  animation: flow-pulse 1.6s ease-in-out infinite;
+}
+.flow-connector-svg path {
+  fill: none;
+  stroke: #55684f;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@keyframes flow-pulse {
+  0%, 100% { opacity: 0.45; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(4px); }
+}
+
+.flow-hint { font-size: 12px; color: #9fd6ae; margin: 8px 0 10px; }
+
 .slot {
   min-height: 54px;
   background: rgba(255,255,255,0.06);
   border: 2px dashed #3c4a3e;
-  border-radius: 4px 4px 14px 14px;
+  border-radius: 6px 6px 14px 14px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 8px;
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 700;
   transition: all 0.15s ease;
+  position: relative;
 }
 .slot-placeholder { color: #6c7b6a; font-weight: 500; }
 .slot.drop-armed { border-color: #5c6f5e; }
-.slot.drop-hover { border-color: #2ec46a; background: rgba(46,196,106,0.12); }
+.slot.drop-hover { border-color: #2ec46a; background: rgba(46,196,106,0.12); transform: scale(1.02); }
 .slot.filled { background: #234a2f; border-style: solid; border-color: #2ec46a; color: #eafff0; }
 .slot.shake { animation: shake 0.4s ease; }
 
 .block-palette {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 14px;
 }
+/* Piezas tipo "bloque de flujo/rompecabezas": una pestaña circular a la
+   izquierda simula el conector que encajaría en el nodo del diagrama. */
 .block-piece {
+  position: relative;
   background: #2f6f8f;
   color: #fff;
   font-weight: 700;
   font-size: 13px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  padding: 12px 16px 12px 22px;
+  margin-left: 8px;
+  border-radius: 8px 14px 14px 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -369,6 +425,17 @@ kbd {
   user-select: none;
   box-shadow: 0 3px 0 rgba(0,0,0,0.2);
   transition: transform 0.1s ease;
+}
+.block-piece::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  background: inherit;
+  border-radius: 50%;
 }
 .block-piece:active { cursor: grabbing; }
 .block-piece.dragging-source { opacity: 0.35; }
@@ -385,6 +452,121 @@ kbd {
 .challenge-feedback { min-height: 20px; margin: 10px 0 0; font-size: 13px; font-weight: 700; }
 .challenge-feedback.ok { color: #6bdc95; }
 .challenge-feedback.err { color: #ff8686; }
+
+/* ---- Panel ESP32 ---- */
+.esp32-board {
+  background: linear-gradient(160deg, #0d130f, #172219);
+  border: 1px solid #2a3a2e;
+  border-radius: 14px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.esp32-core {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1f6f42, #123321);
+  border: 2px solid #2ec46a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 0 rgba(46,196,106,0.5);
+}
+.esp32-core-label { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 12px; color: #d7ffe4; z-index: 1; }
+.esp32-core-pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  border: 2px solid #2ec46a;
+  animation: esp32-pulse 1.8s ease-out infinite;
+}
+@keyframes esp32-pulse {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+
+.wireless-badges { display: flex; gap: 10px; }
+.wireless-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1b271f;
+  border: 1px solid #2a3a2e;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cdd8c8;
+}
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  animation: badge-ping 1.6s ease-in-out infinite;
+}
+.badge-wifi { background: #2ec46a; box-shadow: 0 0 6px 1px rgba(46,196,106,0.8); }
+.badge-ble { background: #3fa9f5; box-shadow: 0 0 6px 1px rgba(63,169,245,0.8); animation-delay: 0.5s; }
+@keyframes badge-ping {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.component-card {
+  background: #0d130f;
+  border: 1px solid #2a3a2e;
+  border-radius: 12px;
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 3px;
+}
+.component-icon { font-size: 22px; }
+.component-name { font-size: 10.5px; font-weight: 700; color: #9fd6ae; letter-spacing: 0.3px; }
+.component-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; color: #eafff0; }
+.component-value.estado-verde { color: #6bdc95; }
+.component-value.estado-amarillo { color: #f0c94f; }
+.component-value.estado-rojo { color: #ff7b7b; }
+.component-hint { font-size: 9.5px; color: #6c7b6a; line-height: 1.25; }
+
+.motor-icon { transition: transform 0.2s ease; display: inline-block; }
+.motor-icon.spinning { animation: motor-spin 0.6s linear infinite; }
+.motor-icon.spinning.motor-slow { animation-duration: 1.4s; }
+@keyframes motor-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.battery-bar {
+  width: 100%;
+  height: 6px;
+  background: #23301f;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.battery-fill { height: 100%; background: #2ec46a; width: 96%; transition: width 0.4s ease; }
+.battery-fill.battery-low { background: #e23c3c; }
+
+.proximity-sim { background: #0d130f; border: 1px solid #2a3a2e; border-radius: 12px; padding: 12px 14px; }
+.proximity-sim .slider-row { margin-bottom: 8px; }
+.proximity-sim .hint { color: #8fa389; margin: 0; }
+
+@media (max-width: 480px) {
+  .component-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .component-name { font-size: 9.5px; }
+  .component-hint { display: none; }
+}
 
 .slider-row { display: block; margin-bottom: 16px; font-size: 13px; flex-shrink: 0; }
 .slider-row span { display: flex; justify-content: space-between; margin-bottom: 6px; color: #cdd8c8; }
@@ -474,7 +656,110 @@ kbd {
   100% { transform: translateY(112vh) translateX(var(--drift)) rotate(var(--rot)); opacity: 0.9; }
 }
 
+/* ---- Responsive: tablet grande / laptop angosto ----
+   Entre el escritorio completo y el punto de quiebre a una sola columna,
+   la tablilla lateral fija de 380px deja muy poco espacio a la escena.
+   Se angosta el panel y se reduce el espaciado general sin cambiar el
+   layout de 2 columnas todavía. */
+@media (max-width: 1100px) and (min-width: 861px) {
+  .app { grid-template-columns: 1fr 320px; }
+  .side-panel { width: 320px; padding: 14px; }
+  .stage { padding: 16px; }
+}
+
+/* ---- Responsive: tablet / móvil ----
+   El layout de escritorio es una grilla de 2 columnas con altura fija
+   (pensada para pantallas anchas). En pantallas angostas pasamos a una
+   sola columna que fluye de arriba a abajo (topbar -> escena -> panel),
+   así que las filas también deben pasar de "1fr fijo" a "auto" para no
+   comprimir el panel lateral contra la altura de la ventana. */
 @media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; grid-template-areas: "topbar" "stage" "panel"; }
-  .side-panel { width: 100%; }
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas: "topbar" "stage" "panel";
+  }
+  .app:has(#side-panel:not(.open)) { grid-template-columns: 1fr; }
+
+  .topbar { flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
+  .topbar-actions { flex-wrap: wrap; gap: 8px; width: 100%; justify-content: space-between; }
+  .brand p { display: none; }
+
+  .stage { padding: 12px 12px 16px; gap: 10px; }
+  .mission-bubble { font-size: 12px; padding: 8px 16px; text-align: center; }
+
+  .semaforo { top: 10px; right: 10px; padding: 8px 10px; gap: 6px; }
+  .led { width: 24px; height: 24px; }
+  .hud-top-left { top: 10px; left: 10px; padding: 6px 10px; }
+  .hud-state-value { font-size: 15px; }
+
+  .controls { width: 100%; }
+  .btn { flex: 1 1 auto; padding: 12px 10px; font-size: 13px; }
+  .btn-icon { flex: 0 0 46px; }
+
+  .side-panel {
+    width: 100%;
+    max-height: none;
+    padding: 14px;
+  }
+  .app:has(#side-panel:not(.open)) .side-panel { padding: 0; }
+  .log-list { max-height: 220px; }
+}
+
+@media (max-width: 480px) {
+  .brand h1 { font-size: 16px; }
+  .brand-badge { font-size: 22px; padding: 4px 8px; }
+  .diff-toggle-btn { font-size: 12px; padding: 7px 10px; }
+  #btn-panel-toggle { font-size: 12px; padding: 9px 12px; }
+  .hint { font-size: 11px; }
+}
+
+/* Teléfonos muy angostos (320-359px: iPhone SE, gama baja de Android) */
+@media (max-width: 359px) {
+  .topbar-actions { flex-direction: column; align-items: stretch; }
+  .difficulty-toggle { justify-content: center; }
+  .brand h1 { font-size: 14px; }
+  .brand p { display: none; }
+  .btn { padding: 11px 6px; font-size: 12px; }
+  .component-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .component-icon { font-size: 18px; }
+  .esp32-core { width: 68px; height: 68px; }
+}
+
+/* Teléfono en horizontal: la altura manda, no el ancho. Se reduce el
+   espaciado vertical para que quepa lo esencial sin scroll excesivo. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .stage { padding: 8px 12px; gap: 6px; }
+  .mission-bubble { padding: 5px 16px; font-size: 11px; }
+  .hint { display: none; }
+  .side-panel { max-height: 100vh; overflow-y: auto; }
+}
+
+/* Tamaños de toque accesibles (mínimo 44px) en dispositivos táctiles */
+@media (hover: none) and (pointer: coarse) {
+  .tab-btn { padding: 12px 6px; min-height: 44px; }
+  .diff-toggle-btn { min-height: 40px; }
+  .btn { min-height: 44px; }
+  .btn-icon { width: 48px; }
+}
+
+/* Respeta la preferencia del usuario de reducir animaciones */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Zonas seguras para teléfonos con notch, cuando corre como app instalada */
+@supports (padding: max(0px)) {
+  .topbar {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-top: max(14px, env(safe-area-inset-top));
+  }
+  .side-panel { padding-right: max(16px, env(safe-area-inset-right)); }
+  body { padding-bottom: env(safe-area-inset-bottom); }
 }
