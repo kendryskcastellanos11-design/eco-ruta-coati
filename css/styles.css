@@ -43,18 +43,23 @@ body {
   text-align: center;
   box-shadow: 0 20px 60px rgba(0,0,0,0.18);
 }
-.welcome-worry {
-  position: absolute;
-  top: 22px;
-  right: 34px;
-  font-size: 30px;
-  animation: welcome-worry-float 2s ease-in-out infinite;
+.welcome-sendel-wrap { display: block; margin: 0 auto 4px; }
+.welcome-sendel-sad {
+  width: 150px;
+  display: block;
+  margin: 0 auto;
+  animation: welcome-sendel-sigh 3s ease-in-out infinite;
 }
-@keyframes welcome-worry-float {
-  0%, 100% { transform: translateY(0) rotate(-4deg); }
-  50% { transform: translateY(-6px) rotate(4deg); }
+@keyframes welcome-sendel-sigh {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
-.welcome-sendel { width: 120px; margin: 0 auto 6px; display: block; }
+.welcome-bubble {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
 .welcome-card h1 { margin: 8px 0 2px; font-size: 24px; }
 .welcome-mission {
   color: var(--verde);
@@ -776,10 +781,10 @@ kbd {
   .hint { font-size: 11px; }
 
   .welcome-card { padding: 26px 20px; }
-  .welcome-sendel { width: 96px; }
+  .welcome-sendel-sad { width: 110px; }
   .welcome-card h1 { font-size: 20px; }
   .welcome-text { font-size: 13px; }
-  .welcome-worry { top: 16px; right: 22px; font-size: 24px; }
+  .welcome-bubble { font-size: 12px; }
 }
 
 /* Teléfonos muy angostos (320-359px: iPhone SE, gama baja de Android) */
