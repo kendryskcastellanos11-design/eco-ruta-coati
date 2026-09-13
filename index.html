@@ -20,6 +20,27 @@
 <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
+  <div id="welcome-screen" class="welcome-screen">
+    <div class="welcome-card">
+      <span class="welcome-worry" aria-hidden="true">😟</span>
+      <img src="assets/sendel-head.png" alt="Sendel, el coatí guardián, preocupado" class="welcome-sendel" />
+      <h1>¡Bienvenido a Eco Ruta!</h1>
+      <p class="welcome-mission">Misión: Salvemos al Coatí</p>
+      <p class="welcome-text">
+        Sendel es el coatí guardián del Parque Nacional Canaima. Hoy su camino de regreso a casa
+        está lleno de obstáculos que ponen en peligro su paso seguro, y necesita tu ayuda para
+        cruzarlos sin problemas.
+      </p>
+      <p class="welcome-text">
+        Sendel lleva puesto un sensor de proximidad (HC-SR04) conectado a un ESP32. Tu misión es
+        programar con bloques cómo debe reaccionar ese sensor frente a cada obstáculo, para que
+        Sendel los esquive y llegue sano y salvo al Parque. Así irás aprendiendo, paso a paso, los
+        primeros conceptos de programación de robots.
+      </p>
+      <button id="btn-start-mission" class="btn btn-primary btn-start">Comenzar misión ▶</button>
+    </div>
+  </div>
+
   <div id="confetti-layer" aria-hidden="true"></div>
 
   <div class="app">
@@ -224,6 +245,11 @@
   <script src="js/frontend/esp32-panel.js"></script>
   <script src="js/frontend/audio.js"></script>
   <script src="js/frontend/app.js"></script>
+  <script>
+    document.getElementById('btn-start-mission').addEventListener('click', () => {
+      document.getElementById('welcome-screen').classList.add('hide');
+    });
+  </script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
