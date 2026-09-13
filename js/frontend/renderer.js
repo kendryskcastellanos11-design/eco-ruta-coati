@@ -219,6 +219,23 @@
       this.track = new PathTrack(mission.waypoints);
       this.images = {};
       this._bobT = 0;
+      this._fitToDevicePixelRatio();
+    }
+
+    /**
+     * Renderiza el canvas a su resolución física real (width/height en
+     * píxeles de dispositivo) para que se vea nítido en pantallas retina /
+     * de alta densidad (la mayoría de teléfonos), en vez de dibujar a 1200x700
+     * y dejar que el navegador lo estire, lo cual se ve borroso. El CSS sigue
+     * controlando el tamaño visible (width:100%; height:auto); aquí sólo se
+     * ajusta la resolución interna y se escala el contexto para que el resto
+     * del código de dibujo siga usando las mismas coordenadas lógicas 1200x700.
+     */
+    _fitToDevicePixelRatio() {
+      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      this.canvas.width = VIEW_W * dpr;
+      this.canvas.height = VIEW_H * dpr;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     async loadAssets({ sendel, tronco }) {
