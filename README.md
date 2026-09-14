@@ -1,8 +1,9 @@
 # Eco Ruta — Misión 1
 
 Simulador web (front end + back end en JavaScript puro, sin dependencias) del
-juego didáctico de **Sendel**, el coatí guardián del Parque Nacional Canaima.
-Sendel recorre un sendero y un sensor de proximidad simulado (tipo
+juego didáctico de **Sendel**, un coatí que vive en el Parque Nacional Canaima
+y debe cruzar el Bosque del CNTI para volver a casa. Sendel recorre un
+sendero y un sensor de proximidad simulado (tipo
 ultrasónico HC‑SR04) enciende un semáforo LED según la distancia al
 obstáculo más cercano por delante:
 
@@ -28,8 +29,10 @@ cualquier servidor estático, por ejemplo:
 npx serve .
 ```
 
-El juego arranca directo en dificultad Fácil, sin ninguna pantalla que
-bloquee — no hace falta "actualizar" nada para empezar a jugar.
+Al abrir, aparece primero una pantalla de bienvenida con la historia de la
+misión (Sendel debe cruzar el Bosque del CNTI para volver a casa, en el
+Parque Nacional Canaima) y un botón **"Comenzar misión"**; al pulsarlo se
+entra al juego, que arranca en dificultad Fácil.
 
 ## Dificultades
 
@@ -89,15 +92,19 @@ un microcontrolador real.
 
 ```
 index.html
-css/styles.css                  — estilos de la interfaz
+manifest.json                   — metadata de la PWA (nombre, íconos, modo standalone)
+service-worker.js               — cache offline de la app instalada
+css/styles.css                  — estilos de la interfaz (responsive: móvil / tablet / escritorio)
 js/backend/sensor-core.js       — lógica pura (sin DOM): SensorSimulator, EventBus
 js/backend/mission-data.js      — MISIONES.facil / MISIONES.dificil (pista y obstáculos)
 js/frontend/renderer.js         — dibujo de la escena en <canvas>, tepuyes, animación de esquive
 js/frontend/block-challenge.js  — mini editor de bloques arrastrables (drag & drop)
 js/frontend/audio.js            — efectos de sonido sintetizados con Web Audio API (sin archivos)
 js/frontend/app.js              — wiring de UI, dificultades, loop de juego, confeti, IA de auto-demo
-assets/sendel.png               — sprite de Sendel (fondo transparente)
-assets/tronco.png               — sprite del tronco caído (fondo transparente)
+assets/sendel.png                — sprite de Sendel (fondo transparente)
+assets/sendel-sad.png            — Sendel triste/preocupado, pantalla de bienvenida
+assets/tronco.png                — sprite del tronco caído (fondo transparente)
+assets/icon-*.png                — íconos de la app instalada (normales y "maskable" para Android)
 ```
 
 **Backend** (`sensor-core.js`): modela la pista como una recta de
@@ -142,6 +149,13 @@ archivos `.mp3`/`.wav` que descargar ni licencias que revisar, y funciona
 100% offline. El contexto de audio se desbloquea con la primera interacción
 del usuario (clic o tecla), como exigen los navegadores.
 
+## App instalable (PWA)
+
+Gracias a `manifest.json` y `service-worker.js`, cualquiera que abra el link
+puede instalar Eco Ruta como una app (ícono en la pantalla de inicio, sin
+barra del navegador, y funciona offline una vez instalada) desde el menú
+"Instalar aplicación" de Chrome, tanto en teléfono como en computadora.
+
 ## Próximos pasos posibles
 
 - **Conectar el ESP32 real** vía [Web Serial API](https://developer.mozilla.org/docs/Web/API/Web_Serial_API)
@@ -151,9 +165,6 @@ del usuario (clic o tecla), como exigen los navegadores.
   (obstáculos esquivados, tiempos, paradas, dificultad elegida) en SQLite
   local o Supabase, para tener un histórico por jugador y desbloquear
   futuras misiones.
-- **Empaquetar como app** (Android/iOS) envolviendo este mismo front end en
-  Capacitor o convirtiéndolo en PWA instalable — el código ya es 100% HTML/
-  CSS/JS sin dependencias de servidor.
 - Añadir más misiones reutilizando `sensor-core.js` con nuevas entradas en
   `MISIONES` (distinta pista, distintos obstáculos, incluso una tercera
   dificultad intermedia).
