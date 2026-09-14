@@ -159,8 +159,8 @@ barra del navegador, y funciona offline una vez instalada) desde el menú
 ## Próximos pasos posibles
 
 - **Conectar el ESP32 real** vía [Web Serial API](https://developer.mozilla.org/docs/Web/API/Web_Serial_API)
-  (como ya hiciste en el proyecto de la llenadora de agua) para reemplazar
-  el sensor simulado por telemetría real del sensor ultrasónico.
+  para reemplazar el sensor simulado por telemetría real del sensor
+  ultrasónico.
 - **Persistencia / progreso entre misiones**: guardar resultados
   (obstáculos esquivados, tiempos, paradas, dificultad elegida) en SQLite
   local o Supabase, para tener un histórico por jugador y desbloquear
