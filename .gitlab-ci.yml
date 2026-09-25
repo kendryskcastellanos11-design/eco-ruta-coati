@@ -1,0 +1,40 @@
+# Despliegue de Eco Ruta en GitLab Pages.
+# Sitio 100 % estático: no hay build, solo se copia todo a public/.
+
+image: alpine:3.20
+
+variables:
+  GIT_DEPTH: "1"          # clonado superficial: más rápido
+
+stages:
+  - deploy
+
+pages:
+  stage: deploy
+  script:
+    # 1) Copiar TODA la estructura estática a public/ (incluye assets/, css/, js/,
+    #    manifest.json y service-worker.js). Se excluyen .git, la propia public/
+    #    y archivos que no hacen falta en producción.
+    - mkdir -p public
+    - >
+      tar --exclude=./public --exclude=./.git --exclude=./.gitlab-ci.yml
+      --exclude=./README.md -cf - . | tar -xf - -C public
+
+    # 2) Verificación: si falta cualquier imagen o recurso local referenciado
+    #    en index.html, el job falla en vez de publicar un sitio roto.
+    - |
+      missing=0
+      for f in $(grep -oE '(src|href)="[^":#?]+"' public/index.html | sed -E 's/^(src|href)="//; s/"$//'); do
+        if [ ! -f "public/$f" ]; then echo "FALTA: $f"; missing=1; fi
+      done
+      [ "$missing" -eq 0 ] || exit 1
+    - ls -laR public/assets
+
+    # 3) Optimización: GitLab Pages sirve automáticamente la versión .gz
+    #    si existe junto al original (menos peso para HTML/CSS/JS/JSON).
+    - find public -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.json' -o -name '*.svg' \) -exec gzip -k -9 {} \;
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

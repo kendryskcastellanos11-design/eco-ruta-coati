@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eco-ruta-v2';
+const CACHE_NAME = 'eco-ruta-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
   './js/frontend/app.js',
   './assets/sendel.png',
   './assets/sendel-head.png',
+  './assets/sendel-sad.png',
   './assets/tronco.png',
   './assets/icon-32.png',
   './assets/icon-180.png',
