@@ -4,7 +4,7 @@ import {
   AlertTriangle, Lock, ChevronRight, Lightbulb, Target, Eye, EyeOff, Download, Copy, Trophy,
   BarChart3, Brain, Rocket, Briefcase, Building2, Languages, FileText, X, Loader2, User, Zap,
   ShieldCheck, ListChecks, RotateCcw, Award, TrendingUp, MessageSquare, Compass, Settings2, Check,
-  Wifi, WifiOff, GraduationCap, Layers,
+  Wifi, WifiOff, GraduationCap, Layers, LifeBuoy, Wand2, HelpCircle, Hourglass,
 } from "lucide-react";
 
 /* =========================================================================
@@ -486,10 +486,10 @@ function evaluateOffline({ question, answer, cfg, mode }) {
   else if (metrics === 0) followUp = en ? "How would you quantify the result? What numbers show the impact?" : "¿Cómo cuantificarías el resultado? ¿Qué cifras demuestran el impacto?";
   else if (!starFound.resultado) followUp = en ? "And what was the final outcome?" : "¿Y cuál fue el resultado final?";
 
-  return { score, checklist, strengths: strengths.slice(0, 4), improvements: improvements.slice(0, 4), missing, followUp, modelAnswer: question.modelAnswer, wordCount: wc, source: "demo" };
+  return { score, checklist, strengths: strengths.slice(0, 4), improvements: improvements.slice(0, 4), missing, followUp, modelAnswer: question.modelAnswer, wordCount: wc, source: "local" };
 }
 
-/* ---------- Motor IA (Anthropic / OpenAI) ---------- */
+/* ---------- Motor IA (Anthropic /v1/messages) ---------- */
 
 function extractJSON(text) {
   const firstObj = text.indexOf("{");
@@ -500,43 +500,119 @@ function extractJSON(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-async function callLLM(api, system, user) {
-  if (api.provider === "anthropic") {
+const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const AI_TIMEOUT_MS = 45000;
+
+async function callLLM(api, system, user, maxTokens = 3000) {
+  const headers = { "Content-Type": "application/json" };
+  if (api.key) {
+    headers["x-api-key"] = api.key;
+    headers["anthropic-version"] = "2023-06-01";
+    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  }
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), AI_TIMEOUT_MS) : null;
+  try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": api.key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "server-side-fallback-2026-07-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers,
+      signal: controller?.signal,
       body: JSON.stringify({
-        model: api.model || "claude-opus-5-5",
-        max_tokens: 16000,
-        output_config: { effort: "low" },
-        fallbacks: "default",
-        system,
-        messages: [{ role: "user", content: user }],
+        model: api.model || DEFAULT_MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: `${system}\n\n${user}` }],
       }),
     });
-    if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 160)}`);
     const data = await res.json();
     if (data.stop_reason === "refusal") throw new Error("El modelo declinó la solicitud");
-    return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (!text) throw new Error("Respuesta vacía de la IA");
+    return text;
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("Tiempo de espera agotado");
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${api.key}` },
-    body: JSON.stringify({
-      model: api.model || "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+}
+
+async function pingAI(api) {
+  const out = await callLLM(api, "Responde únicamente con la palabra OK.", "Prueba de conexión.", 10);
+  return /ok/i.test(out);
+}
+
+async function askSupportAI(api, { cfg, question, draft, lastEval, history, message }) {
+  const system = `Eres el Soporte IA de EDIA Interview Copilot: un coach de entrevistas experto, cercano y muy concreto. Respondes en español (si te piden un ejemplo de respuesta, escríbelo en ${cfg.language}). Usa párrafos cortos y viñetas cuando ayuden. Máximo 220 palabras. No inventes datos del candidato: usa marcadores como [tu métrica] cuando falte información. Responde solo con el texto para el candidato.`;
+  const convo = history.slice(-6).map((m) => `${m.role === "user" ? "Candidato" : "Soporte EDIA"}: ${m.text}`).join("\n");
+  const user = `CONTEXTO DE LA ENTREVISTA
+- Puesto: ${cfg.role} | Empresa/Industria: ${cfg.company || "-"} | Nivel: ${cfg.level} | Idioma: ${cfg.language}
+- Modo: ${cfg.mode === "agent" ? "Agente Evaluador (simulación real)" : "Copiloto guiado"}
+- Vacante/CV: ${cfg.jd || "no proporcionado"}
+- Pregunta actual del entrevistador: ${question.question}
+- Competencia evaluada: ${question.competency}
+- Estructura sugerida: ${question.structure.map((s) => s.label).join(" → ")}
+- Borrador actual del candidato: ${draft ? `"""${draft}"""` : "(vacío)"}
+- Última evaluación: ${lastEval ? `${lastEval.score}/100. Pendiente: ${(lastEval.missing || lastEval.improvements || []).join("; ")}` : "sin evaluar aún"}
+
+CONVERSACIÓN PREVIA CON EL SOPORTE
+${convo || "(ninguna)"}
+
+MENSAJE DEL CANDIDATO
+${message}`;
+  return callLLM(api, system, user, 1200);
+}
+
+/* ---------- Motor local de Soporte (respaldo sin red) ---------- */
+
+const CATEGORY_TIPS = {
+  comunicacion: "El reclutador mide si comunicas con claridad, foco y seguridad. Abre con la conclusión y conecta todo con el puesto.",
+  tecnico: "El reclutador busca profundidad real: herramientas, métodos, decisiones y trade-offs, no solo definiciones.",
+  problemas: "El reclutador evalúa cómo piensas bajo presión: diagnóstico, opciones que consideraste, la decisión y lo que aprendiste.",
+  impacto: "El reclutador quiere evidencia de resultados: cifras concretas y tu contribución personal al logro.",
+};
+
+function localSupport({ kind, message, cfg, question, draft, lastEval }) {
+  const role = cfg.role || "el puesto";
+  if (kind === "example") {
+    return `Aquí tienes un ejemplo adaptado a un perfil ${cfg.level} de ${role}${cfg.company ? ` para ${cfg.company}` : ""}:\n\n"${question.modelAnswer}"\n\n👉 Reemplaza las cifras y el contexto por tu experiencia real: un reclutador detecta enseguida una historia inventada.`;
+  }
+  if (kind === "recruiter") {
+    return `🎯 Competencia evaluada: ${question.competency}.\n\n${CATEGORY_TIPS[question.category] || CATEGORY_TIPS.comunicacion}\n\nEstructura que más puntúa:\n${question.structure.map((s, i) => `${i + 1}. ${s.label}: ${s.hint}`).join("\n")}\n\nConceptos que suman puntos: ${question.keywords.slice(0, 6).join(", ")}.`;
+  }
+  if (kind === "improve") {
+    if (!draft.trim()) return "Primero escribe un borrador en la caja de respuesta del entrevistador (aunque sea en 2-3 frases) y vuelve a pulsar \"Mejorar mi borrador\". Lo analizaré y te propondré una versión más sólida.";
+    const ev = evaluateOffline({ question, answer: draft, cfg, mode: cfg.mode });
+    const firstSentence = draft.trim().split(/(?<=[.!?])\s+/)[0].replace(/[.!?]+$/, "");
+    const lower = firstSentence.charAt(0).toLowerCase() + firstSentence.slice(1);
+    const improved = cfg.language === "Inglés"
+      ? `In my role as ${role} at [company/project], ${lower}. My goal was to [specific, measurable objective]. To achieve it, I [action 1], [action 2] and [action 3]. As a result, [metric: %, time, money or users], and I learned [key lesson].`
+      : `En mi rol como ${role} en [empresa/proyecto], ${lower}. Mi objetivo era [objetivo concreto y medible]. Para lograrlo, [acción 1 en primera persona], [acción 2] y [acción 3]. Como resultado, [métrica: %, tiempo, dinero o usuarios] y aprendí [aprendizaje clave].`;
+    return `📊 Estimación de tu borrador: ${ev.score}/100 (${ev.wordCount} palabras).\n\n${ev.missing.length ? `Lo que falta:\n${ev.missing.slice(0, 4).map((m) => `• ${m}`).join("\n")}` : "Tu borrador ya cubre lo esencial. Pule el cierre con un aprendizaje."}\n\n✍️ Versión mejorada (completa los corchetes con tus datos):\n"${improved}"`;
+  }
+  const m = normalize(message);
+  if (/(no tengo experiencia|sin experiencia|poca experiencia|nunca he|no he trabajado|lack experience|no experience)/.test(m)) {
+    return `Es muy común y tiene solución. Usa la fórmula Puente:\n1. Reconoce con honestidad: "No lo he hecho en un entorno laboral…"\n2. Transfiere: "…pero en [proyecto académico/personal/voluntariado] hice algo equivalente: [acción]".\n3. Demuestra aprendizaje: "Aprendí [herramienta/concepto] en [tiempo] y obtuve [resultado]".\n4. Proyecta: "En ${cfg.company || "este rol"} lo aplicaría en [ejemplo concreto]".\n\nNunca digas solo "no tengo experiencia": termina siempre con evidencia de que aprendes rápido.`;
+  }
+  if (/(nervio|ansiedad|miedo|bloque|me quedo en blanco|nervous|anxious)/.test(m)) {
+    return "Para controlar los nervios:\n• Pide unos segundos: \"Buena pregunta, déjame pensarlo un momento\" es totalmente profesional.\n• Ancla tu respuesta en la estructura (Situación → Tarea → Acción → Resultado): te da un mapa aunque te quedes en blanco.\n• Respira en 4-4-4 antes de contestar.\n• Practica aquí en voz alta con el micrófono: la repetición reduce la ansiedad.";
+  }
+  if (/(salario|sueldo|pretension|remuneracion|salary|compensation)/.test(m)) {
+    return `Sobre la pretensión salarial:\n• Investiga el rango de mercado para ${role} nivel ${cfg.level}.\n• Da un rango, no una cifra: "Según mi investigación y experiencia, busco entre [X] y [Y]".\n• Si es muy pronto, devuelve la pregunta con cortesía: "Me gustaría entender mejor el alcance del rol; ¿qué rango tienen previsto?".\n• Habla del paquete total (beneficios, formación, flexibilidad).`;
+  }
+  if (/(debilidad|defecto|punto debil|weakness)/.test(m)) {
+    return "Para la pregunta de debilidades:\n1. Elige una debilidad real pero no crítica para el puesto.\n2. Muestra conciencia: cómo la detectaste.\n3. Explica el plan concreto que aplicas para mejorarla.\n4. Cierra con evidencia de progreso (\"desde entonces…\").\nEvita clichés como \"soy demasiado perfeccionista\".";
+  }
+  if (/(pregunta.*(final|reclutador|yo)|que pregunto|questions to ask)/.test(m)) {
+    return `Buenas preguntas para cerrar la entrevista:\n• "¿Cómo se medirá el éxito en este rol en los primeros 90 días?"\n• "¿Cuál es el mayor reto del equipo ahora mismo?"\n• "¿Cómo es un día típico de un ${role} aquí?"\n• "¿Cuáles son los siguientes pasos del proceso?"`;
+  }
+  if (/(metrica|numero|cifra|cuantific|no tengo datos|metric|numbers)/.test(m)) {
+    return "Si no tienes cifras exactas, usa aproximaciones honestas:\n• Tiempo: \"reduje de ~3 días a 1\".\n• Escala: \"para un equipo de 8 personas / 200 clientes\".\n• Comparación: \"el doble de rápido\", \"la mitad de errores\".\n• Feedback: \"la satisfacción del cliente subió de 7 a 9\".\nUn número aproximado y razonable siempre es mejor que ninguno.";
+  }
+  if (/(star|estructura|como respondo|como empiezo|structure)/.test(m)) {
+    return `Para esta pregunta usa:\n${question.structure.map((s, i) => `${i + 1}. ${s.label}: ${s.hint}`).join("\n")}\n\nDistribución ideal: 15% contexto, 10% objetivo, 50% acciones, 25% resultado.`;
+  }
+  return `Te ayudo con la pregunta actual: "${question.question}"\n\n${CATEGORY_TIPS[question.category] || CATEGORY_TIPS.comunicacion}\n\nPasos sugeridos:\n${question.structure.map((s, i) => `${i + 1}. ${s.label}`).join(" → ")}\n\n${lastEval && lastEval.score < PASS_SCORE ? `Para aprobar te falta: ${(lastEval.missing.length ? lastEval.missing : lastEval.improvements).slice(0, 3).join("; ")}.` : "Usa los botones rápidos para pedirme un ejemplo con tu perfil o que mejore tu borrador."}\n\n(Respuesta del Motor de Respaldo Local: conecta la IA para respuestas totalmente personalizadas.)`;
 }
 
 async function generateQuestionsAI(api, cfg) {
@@ -551,7 +627,7 @@ async function generateQuestionsAI(api, cfg) {
 Mezcla preguntas conductuales (STAR) y técnicas del puesto. Devuelve un objeto JSON:
 {"questions":[{"question":"...","competency":"competencia evaluada (en español)","category":"comunicacion|tecnico|problemas|impacto","structure":[{"label":"Situación","hint":"..."}],"keywords":["5-8 conceptos clave"],"modelAnswer":"respuesta ideal Top 1% de 120-170 palabras en ${cfg.language}, en primera persona y con métricas"}]}
 Las etiquetas "structure" y "hint" deben estar en español.`;
-  const out = extractJSON(await callLLM(api, system, user));
+  const out = extractJSON(await callLLM(api, system, user, 4000));
   const list = Array.isArray(out) ? out : out.questions;
   if (!Array.isArray(list) || list.length < TOTAL_QUESTIONS) throw new Error("Respuesta incompleta de la IA");
   return list.slice(0, TOTAL_QUESTIONS).map((q, i) => ({
@@ -580,7 +656,7 @@ Respuesta del candidato: """${answer}"""
 
 Devuelve JSON:
 {"score":0-100,"checklist":{"claridad":0-100,"impacto":0-100,"estructura":0-100,"relevancia":0-100},"strengths":["2-4 puntos en español"],"improvements":["2-4 correcciones concretas en español"],"missing":["lo mínimo que falta para superar 70, en español"],"followUp":"repregunta breve del entrevistador en ${cfg.language} si la respuesta es superficial o corta; si no, cadena vacía","modelAnswer":"respuesta Top 1% de 120-170 palabras en ${cfg.language} adaptada al puesto"}`;
-  const out = extractJSON(await callLLM(api, system, user));
+  const out = extractJSON(await callLLM(api, system, user, 2000));
   const ck = out.checklist || {};
   return {
     score: Math.round(clamp(Number(out.score) || 0)),
@@ -696,13 +772,18 @@ function Logo({ size = "md" }) {
   );
 }
 
-function StatusPill({ api }) {
-  const active = api.key && api.verified !== false;
+function StatusPill({ api, compact = false }) {
+  const map = {
+    online: { cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300", dot: "bg-emerald-400", icon: <Wifi size={14} />, label: "IA Activa" },
+    checking: { cls: "border-cyan-500/40 bg-cyan-500/10 text-cyan-300", dot: "bg-cyan-400", icon: <Loader2 size={14} className="animate-spin" />, label: "Conectando IA..." },
+    offline: { cls: "border-amber-500/30 bg-amber-500/10 text-amber-300", dot: "bg-amber-400", icon: <WifiOff size={14} />, label: "Modo Respaldo Local" },
+  };
+  const st = map[api.status] || map.offline;
   return (
-    <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${active ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>
-      {active ? <Wifi size={14} /> : <WifiOff size={14} />}
-      {active ? `Modo IA Activo · ${api.provider === "anthropic" ? "Claude" : "OpenAI"}` : "Modo Demo Activo (Sin API)"}
-      <span className={`w-2 h-2 rounded-full ${active ? "bg-emerald-400" : "bg-amber-400"} animate-pulse`} />
+    <div title={api.status === "offline" && api.error ? `Motivo: ${api.error}` : st.label} className={`flex items-center gap-2 rounded-full font-medium border ${st.cls} ${compact ? "px-2 py-1.5 text-[11px]" : "px-3 py-1.5 text-xs"}`}>
+      {st.icon}
+      <span className={compact ? "hidden xl:inline" : "hidden sm:inline"}>{st.label}</span>
+      <span className={`w-2 h-2 rounded-full ${st.dot} animate-pulse`} />
     </div>
   );
 }
@@ -718,35 +799,30 @@ function ScoreBar({ value, height = "h-3" }) {
 }
 
 function ApiModal({ api, onSave, onClose }) {
-  const [provider, setProvider] = useState(api.provider || "anthropic");
   const [key, setKey] = useState(api.key || "");
   const [model, setModel] = useState(api.model || "");
   const [show, setShow] = useState(false);
-  const defaultModel = provider === "anthropic" ? "claude-opus-5-5" : "gpt-4o-mini";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm fade-in">
       <Glass className="w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2 text-white font-bold"><KeyRound size={18} className="text-cyan-400" /> Configurar API Key</div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 text-white font-bold"><KeyRound size={18} className="text-cyan-400" /> Conexión de IA</div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X size={18} /></button>
         </div>
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Proveedor</label>
-        <div className="grid grid-cols-2 gap-2 mt-2 mb-4">
-          {[["anthropic", "Anthropic Claude"], ["openai", "OpenAI"]].map(([v, l]) => (
-            <button key={v} onClick={() => { setProvider(v); setModel(""); }} className={`py-2.5 rounded-xl text-sm font-medium border transition ${provider === v ? "border-cyan-500 bg-cyan-500/10 text-cyan-300" : "border-slate-800 text-slate-400 hover:border-slate-700"}`}>{l}</button>
-          ))}
-        </div>
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">API Key</label>
+        <div className="mb-4"><StatusPill api={api} /></div>
+        {api.status === "offline" && api.error && <p className="text-[11px] text-amber-300/80 mb-4">Último error: {api.error}</p>}
+        <p className="text-xs text-slate-400 mb-4 leading-relaxed">Dentro de los Artifacts de Claude la IA funciona de forma nativa y <b className="text-slate-200">no necesitas API Key</b>. Ingresa una clave de Anthropic solo si exportas este código fuera de Claude.</p>
+        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">API Key de Anthropic (opcional)</label>
         <div className="relative mt-2 mb-4">
-          <input type={show ? "text" : "password"} value={key} onChange={(e) => setKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-..." : "sk-..."} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 pr-10 text-sm text-white focus:outline-none focus:border-cyan-500" />
+          <input type={show ? "text" : "password"} value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 pr-10 text-sm text-white focus:outline-none focus:border-cyan-500" />
           <button onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-slate-500">{show ? <EyeOff size={16} /> : <Eye size={16} />}</button>
         </div>
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Modelo (opcional)</label>
-        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaultModel} className="w-full mt-2 mb-4 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" />
-        <p className="text-xs text-slate-500 mb-5 leading-relaxed">La clave solo vive en la memoria de esta pestaña y se envía directamente al proveedor. Si la API falla (red, CORS o cuota), EDIA vuelve automáticamente al Modo Demo Offline.</p>
+        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Modelo</label>
+        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={DEFAULT_MODEL} className="w-full mt-2 mb-4 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" />
+        <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">La clave solo vive en la memoria de esta pestaña. Si la red o la API fallan, EDIA activa automáticamente el Motor de Respaldo Local (STAR + palabras clave de la vacante).</p>
         <div className="flex gap-2">
-          <button onClick={() => { onSave({ provider, key: "", model: "" }); onClose(); }} className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm hover:bg-slate-800">Usar Modo Demo</button>
-          <button onClick={() => { onSave({ provider, key: key.trim(), model: model.trim(), verified: true }); onClose(); }} disabled={!key.trim()} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-sm font-semibold disabled:opacity-40">Guardar y activar</button>
+          <button onClick={() => { onSave({ key: "", model: model.trim() }); onClose(); }} className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm hover:bg-slate-800 flex items-center justify-center gap-1.5"><RotateCcw size={14} /> {key ? "Quitar clave" : "Reintentar"}</button>
+          <button onClick={() => { onSave({ key: key.trim(), model: model.trim() }); onClose(); }} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-sm font-semibold">Guardar y conectar</button>
         </div>
       </Glass>
     </div>
@@ -760,8 +836,8 @@ function TopBrandBar({ api, onOpenApi, onHome }) {
         <button onClick={onHome}><Logo /></button>
         <div className="flex items-center gap-3">
           <StatusPill api={api} />
-          <button onClick={onOpenApi} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 text-xs transition">
-            <Settings2 size={14} /> <span className="hidden sm:inline">Configurar API Key</span>
+          <button onClick={onOpenApi} title="API Key opcional" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 text-xs transition">
+            <KeyRound size={14} /> <span className="hidden sm:inline">API Key</span>
           </button>
         </div>
       </div>
@@ -776,18 +852,18 @@ function TopBrandBar({ api, onOpenApi, onHome }) {
 function Landing({ onStart }) {
   const steps = [
     { icon: Settings2, title: "1. Configura tu vacante", text: "Define el puesto, la empresa, tu nivel y pega la descripción de la vacante o tu CV.", color: "from-cyan-500 to-cyan-400" },
-    { icon: Compass, title: "2. Practica con guía en vivo", text: "EDIA te muestra qué evalúa el reclutador, la estructura ideal y los conceptos clave.", color: "from-indigo-500 to-indigo-400" },
+    { icon: LifeBuoy, title: "2. Practica con Soporte IA en vivo", text: "Guía en tiempo real y un chat de soporte IA 24/7 para resolver dudas o mejorar tu borrador.", color: "from-indigo-500 to-indigo-400" },
     { icon: Trophy, title: "3. Supera el 70% para avanzar", text: "Cada respuesta se evalúa. Si no llegas al 70, reescribe aplicando el feedback.", color: "from-emerald-500 to-emerald-400" },
   ];
   return (
     <main className="max-w-6xl mx-auto px-4 py-12 sm:py-20 fade-in">
       <div className="text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-xs font-medium mb-8">
-          <Sparkles size={14} /> Modo Agente · Tutoría paso a paso · Evaluación STAR
+          <Sparkles size={14} /> Modo Agente · Soporte IA 24/7 · Evaluación STAR
         </div>
         <div className="flex justify-center mb-6"><Logo size="lg" /></div>
         <h1 className="text-3xl sm:text-5xl font-black text-white leading-tight tracking-tight">
-          Tu copiloto inteligente para <span className="bg-gradient-to-r from-cyan-400 via-indigo-400 to-emerald-400 bg-clip-text text-transparent">dominar cualquier entrevista laboral</span>
+          Tu copiloto inteligente con soporte IA 24/7 para <span className="bg-gradient-to-r from-cyan-400 via-indigo-400 to-emerald-400 bg-clip-text text-transparent">dominar cualquier entrevista</span>
         </h1>
         <p className="mt-5 text-slate-400 text-base sm:text-lg">Entrena con un entrevistador IA que se adapta a tu vacante, recibe feedback inmediato y no avances hasta dominar cada respuesta.</p>
         <button onClick={onStart} className="group mt-10 inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white font-bold text-lg shadow-2xl shadow-cyan-500/30 hover:shadow-cyan-500/50 hover:scale-[1.03] transition-all glow">
@@ -804,7 +880,7 @@ function Landing({ onStart }) {
         ))}
       </div>
       <div className="mt-10 flex flex-wrap justify-center gap-6 text-xs text-slate-500">
-        <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-emerald-400" /> Funciona 100% offline en Modo Demo</span>
+        <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-emerald-400" /> Respaldo local automático si falla la red</span>
         <span className="flex items-center gap-1.5"><Mic size={14} className="text-cyan-400" /> Responde hablando con tu micrófono</span>
         <span className="flex items-center gap-1.5"><Languages size={14} className="text-indigo-400" /> Español e Inglés</span>
       </div>
@@ -874,8 +950,8 @@ function Setup({ initial, onBack, onLaunch, loading }) {
           <Label icon={Layers}>Modo de entrenamiento</Label>
           <div className="grid md:grid-cols-2 gap-3">
             {[
-              { v: "copilot", icon: Compass, title: "Modo Copiloto EDIA (Guiado)", text: "Pistas, estructura y análisis en vivo antes y después de responder.", accent: "cyan" },
-              { v: "agent", icon: Bot, title: "Modo Agente Evaluador (Simulación Real)", text: "Sin ayudas durante la respuesta, 2 minutos por pregunta y evaluación con rigor de reclutador senior.", accent: "indigo" },
+              { v: "copilot", icon: Compass, title: "Modo Copiloto EDIA (Guiado)", text: "Pistas, estructura y soporte en vivo antes y después de responder.", accent: "cyan" },
+              { v: "agent", icon: Bot, title: "Modo Agente Evaluador (Simulación Real)", text: "Sin pistas automáticas durante la respuesta, 2 minutos por pregunta y evaluación con rigor de reclutador senior.", accent: "indigo" },
             ].map(({ v, icon: Icon, title, text, accent }) => {
               const on = cfg.mode === v;
               return (
@@ -907,7 +983,7 @@ function GuidePanel({ question, mode, unlocked, hideHints, setHideHints }) {
       <div className="flex flex-col items-center justify-center text-center py-16 px-6">
         <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mb-4"><Lock size={26} className="text-indigo-400" /></div>
         <h4 className="text-white font-bold">Ayudas bloqueadas</h4>
-        <p className="text-sm text-slate-400 mt-2 max-w-xs">Estás en <span className="text-indigo-300">Modo Agente Evaluador</span>. Responde como en una entrevista real; la guía se desbloquea tras tu primera evaluación.</p>
+        <p className="text-sm text-slate-400 mt-2 max-w-xs">Estás en <span className="text-indigo-300">Modo Agente Evaluador</span>. Responde como en una entrevista real; la guía se desbloquea tras tu primera evaluación. Si lo necesitas, el Soporte IA sigue disponible bajo demanda.</p>
       </div>
     );
   }
@@ -988,7 +1064,7 @@ function EvalPanel({ evalData, loading, attempts, onNext, onSkip, isLast, mode }
   return (
     <div className="space-y-5 fade-in">
       <div className="text-center">
-        <div className="text-[11px] uppercase tracking-widest text-slate-500 mb-1">Intento {attempts} · {evalData.source === "ai" ? "Evaluación IA" : "Motor Demo EDIA"}{mode === "agent" ? " · Rigor reclutador" : ""}</div>
+        <div className="text-[11px] uppercase tracking-widest text-slate-500 mb-1">Intento {attempts} · {evalData.source === "ai" ? "Evaluación IA" : "Motor de Respaldo Local"}{mode === "agent" ? " · Rigor reclutador" : ""}</div>
         <div className={`text-6xl font-black tabular-nums score-pop ${pass ? "text-emerald-400" : "text-red-400"}`}>{evalData.score}<span className="text-2xl text-slate-600">/100</span></div>
         <div className="mt-3"><ScoreBar value={evalData.score} /></div>
         <div className="flex justify-between text-[10px] text-slate-600 mt-1"><span>0</span><span className="text-slate-400">Umbral {PASS_SCORE}</span><span>100</span></div>
@@ -1018,7 +1094,7 @@ function EvalPanel({ evalData, loading, attempts, onNext, onSkip, isLast, mode }
             ))}
           </ul>
           <button disabled className="mt-4 w-full py-2.5 rounded-xl bg-slate-800 text-slate-500 text-sm font-semibold flex items-center justify-center gap-2 cursor-not-allowed"><Lock size={14} /> Siguiente pregunta bloqueada</button>
-          <button onClick={onSkip} className="mt-2 w-full text-[11px] text-slate-500 hover:text-slate-300 underline underline-offset-2">Omitir esta pregunta de todos modos</button>
+          <button onClick={onSkip} className="mt-2 w-full text-[11px] text-slate-500 hover:text-slate-300 underline underline-offset-2">Omitir pregunta</button>
         </div>
       ) : (
         <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 unlock">
@@ -1048,7 +1124,65 @@ function EvalPanel({ evalData, loading, attempts, onNext, onSkip, isLast, mode }
   );
 }
 
-function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
+function SupportPanel({ messages, loading, onAsk, hasDraft, api, isAgent }) {
+  const [input, setInput] = useState("");
+  const endRef = useRef(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  const quick = [
+    ["example", "Dame un ejemplo con mi perfil", User],
+    ["recruiter", "¿Qué busca el reclutador aquí?", HelpCircle],
+    ["improve", "Mejorar mi borrador", Wand2],
+  ];
+  const send = () => { if (!input.trim() || loading) return; onAsk("free", input); setInput(""); };
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-800/60">
+        <span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${api.status === "online" ? "bg-emerald-400" : api.status === "checking" ? "bg-cyan-400" : "bg-amber-400"}`} />{api.status === "online" ? "Soporte IA conectado · 24/7" : api.status === "checking" ? "Conectando con la IA..." : "Soporte con Motor de Respaldo Local"}</span>
+        {isAgent && <span className="text-indigo-300/80">Ayuda bajo demanda</span>}
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[260px]">
+        {messages.map((m, i) => {
+          const mine = m.role === "user";
+          return (
+            <div key={i} className={`flex gap-2 msg-in ${mine ? "flex-row-reverse" : ""}`}>
+              <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center ${mine ? "bg-slate-700" : "bg-gradient-to-br from-emerald-500 to-cyan-500"}`}>{mine ? <User size={14} className="text-slate-200" /> : <LifeBuoy size={14} className="text-white" />}</div>
+              <div className={`max-w-[88%] rounded-2xl px-3 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${mine ? "bg-cyan-500/15 border border-cyan-500/30 text-slate-100 rounded-tr-sm" : "bg-slate-800/70 border border-slate-700/60 text-slate-200 rounded-tl-sm"}`}>{m.text}</div>
+            </div>
+          );
+        })}
+        {loading && (
+          <div className="flex gap-2 msg-in">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center"><LifeBuoy size={14} className="text-white" /></div>
+            <div className="rounded-2xl px-3 py-2.5 bg-slate-800/70 border border-slate-700/60 text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-cyan-300" /> EDIA está pensando tu respuesta...</div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+      <div className="p-3 border-t border-slate-800/80 bg-slate-950/50">
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {quick.map(([k, l, Icon]) => (
+            <button key={k} disabled={loading} onClick={() => onAsk(k)} title={k === "improve" && !hasDraft ? "Escribe primero un borrador en la caja del entrevistador" : l} className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40 transition">
+              <Icon size={12} /> {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 items-end">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            rows={2}
+            placeholder="Pregunta lo que quieras al copiloto... (Enter para enviar)"
+            className="flex-1 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-[13px] text-white placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/60"
+          />
+          <button onClick={send} disabled={!input.trim() || loading} className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white disabled:opacity-30"><Send size={16} /></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Workspace({ cfg, api, questions, onHome, onOpenApi, onFinish, setApiFailed }) {
   const en = cfg.language === "Inglés";
   const [idx, setIdx] = useState(0);
   const [messages, setMessages] = useState(() => [
@@ -1072,6 +1206,10 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
   const [startedAt] = useState(Date.now());
   const [qStart, setQStart] = useState(Date.now());
   const [frozen, setFrozen] = useState(null);
+  const [supportMsgs, setSupportMsgs] = useState(() => [
+    { role: "assistant", text: `¡Hola! Soy el Soporte IA de EDIA. Estoy contigo durante toda la entrevista para ${cfg.role}: pregúntame lo que quieras (cómo explicar falta de experiencia, cómo cuantificar un logro, qué responder…) o usa los botones rápidos.` },
+  ]);
+  const [supportLoading, setSupportLoading] = useState(false);
   const recRef = useRef(null);
   const chatEnd = useRef(null);
   const autoSubmitted = useRef(false);
@@ -1096,8 +1234,9 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
     setMicError("");
     if (listening) { stopMic(); return; }
     const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SR) { setMicError("Tu navegador no soporta dictado por voz (prueba Chrome o Edge)."); return; }
-    const rec = new SR();
+    if (!SR) { setMicError("Tu navegador no soporta dictado por voz (prueba Chrome o Edge). Puedes seguir escribiendo tu respuesta."); return; }
+    let rec;
+    try { rec = new SR(); } catch (err) { setMicError("El navegador bloqueó el reconocimiento de voz en este entorno. Escribe tu respuesta o abre la app en una pestaña propia."); return; }
     rec.lang = en ? "en-US" : "es-ES";
     rec.continuous = true;
     rec.interimResults = true;
@@ -1111,7 +1250,19 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
       if (finalText) setAnswer((a) => (a ? `${a.trimEnd()} ${finalText.trim()}` : finalText.trim()));
       setInterim(interimText);
     };
-    rec.onerror = (e) => { setMicError(e.error === "not-allowed" ? "Permiso de micrófono denegado." : `Error de micrófono: ${e.error}`); setListening(false); };
+    rec.onerror = (e) => {
+      const msgs = {
+        "not-allowed": "Permiso de micrófono denegado o bloqueado por el entorno. Revisa los permisos del navegador.",
+        "service-not-allowed": "El navegador no permite el servicio de dictado aquí. Escribe tu respuesta.",
+        "audio-capture": "No se detectó ningún micrófono conectado.",
+        "network": "El dictado necesita conexión a internet.",
+        "no-speech": "No se detectó voz. Pulsa el micrófono e inténtalo de nuevo.",
+        "aborted": "",
+      };
+      const m = msgs[e.error] ?? `Error de micrófono: ${e.error}`;
+      if (m) setMicError(m);
+      setListening(false);
+    };
     rec.onend = () => { setListening(false); setInterim(""); };
     try { rec.start(); recRef.current = rec; setListening(true); } catch (err) { setMicError("No se pudo iniciar el micrófono."); }
   };
@@ -1128,10 +1279,10 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
     let ev;
     const started = Date.now();
     try {
-      if (api.key) ev = await evaluateAI(api, { question: current, answer: text, cfg, mode: cfg.mode, history: res.attempts });
-      else throw new Error("demo");
+      if (api.status === "offline") throw new Error("local");
+      ev = await evaluateAI(api, { question: current, answer: text, cfg, mode: cfg.mode, history: res.attempts });
     } catch (err) {
-      if (api.key && err.message !== "demo") setApiFailed(err.message);
+      if (err.message !== "local") setApiFailed(err.message);
       ev = evaluateOffline({ question: current, answer: text, cfg, mode: cfg.mode });
     }
     const wait = 1100 - (Date.now() - started);
@@ -1178,6 +1329,46 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
     autoSubmitted.current = false;
   };
 
+  const askSupport = async (kind, rawText) => {
+    if (supportLoading) return;
+    const prompts = {
+      example: "Dame un ejemplo con mi perfil",
+      recruiter: "¿Qué busca el reclutador aquí?",
+      improve: "Mejorar mi borrador",
+    };
+    const userText = kind === "free" ? rawText.trim() : prompts[kind];
+    if (!userText) return;
+    const history = supportMsgs;
+    setSupportMsgs((m) => [...m, { role: "user", text: userText }]);
+    setSupportLoading(true);
+    const draft = answer.trim();
+    const aiMessage = {
+      example: `Escribe un ejemplo de respuesta ideal (en ${cfg.language}) para la pregunta actual, adaptado a mi perfil (${cfg.level}, ${cfg.role}${cfg.jd ? ", usando datos de la vacante/CV" : ""}). Después explica en 2 viñetas por qué funciona.`,
+      recruiter: "Explícame qué busca realmente el reclutador con la pregunta actual, qué señales de alerta evita y cómo debería estructurar mi respuesta.",
+      improve: draft ? `Mejora mi borrador actual: dame una estimación de puntaje, 2-3 correcciones concretas y una versión mejorada lista para usar en ${cfg.language}, manteniendo mis datos reales.` : "Aún no tengo borrador. Dame una plantilla para empezar a escribir mi respuesta.",
+      free: userText,
+    }[kind];
+    let reply;
+    const started = Date.now();
+    try {
+      if (api.status === "offline") throw new Error("local");
+      reply = await askSupportAI(api, { cfg, question: current, draft, lastEval, history, message: aiMessage });
+    } catch (err) {
+      if (err.message !== "local") setApiFailed(err.message);
+      reply = localSupport({ kind, message: userText, cfg, question: current, draft, lastEval });
+    }
+    const wait = 700 - (Date.now() - started);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    setSupportMsgs((m) => [...m, { role: "assistant", text: reply, kind }]);
+    setSupportLoading(false);
+  };
+
+  const simulateTimeout = () => {
+    const t = Date.now();
+    setQStart(t - AGENT_SECONDS * 1000 - 1000);
+    setNow(t);
+  };
+
   const wc = countWords(answer);
   const timerDanger = isAgent && remaining <= 30;
 
@@ -1194,6 +1385,12 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
           <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm font-mono tabular-nums ${timerDanger ? "border-red-500/50 bg-red-500/10 text-red-300 animate-pulse" : "border-slate-800 text-slate-300"}`} title={isAgent ? "Tiempo restante para esta pregunta" : "Tiempo total de sesión"}>
             <Timer size={15} /> {isAgent ? fmtTime(remaining) : fmtTime(totalElapsed)}
           </div>
+          {isAgent && !frozen && !passed && !loading && (
+            <button onClick={simulateTimeout} title="Simular fin de tiempo (pruebas rápidas)" className="hidden sm:flex items-center gap-1 px-2 py-1.5 rounded-lg border border-dashed border-slate-700 text-[11px] text-slate-500 hover:text-amber-300 hover:border-amber-500/50 whitespace-nowrap">
+              <Hourglass size={13} /> <span className="hidden lg:inline">Simular fin de tiempo</span>
+            </button>
+          )}
+          <button onClick={onOpenApi} className="hidden sm:block" title="Estado de la IA / API Key opcional"><StatusPill api={api} compact /></button>
           <button onClick={toggleMic} title="Dictar respuesta" className={`p-2 rounded-lg border transition ${listening ? "border-red-500 bg-red-500/20 text-red-300 mic-pulse" : "border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/50"}`}>
             {listening ? <MicOff size={18} /> : <Mic size={18} />}
           </button>
@@ -1275,20 +1472,25 @@ function Workspace({ cfg, api, questions, onHome, onFinish, setApiFailed }) {
         {/* Panel Copiloto */}
         <aside className="lg:w-2/5 flex flex-col min-h-[60vh] lg:min-h-0 bg-slate-900/30">
           <div className="flex p-2 gap-1 border-b border-slate-800/60">
-            {[["guide", "Guía en Vivo", Compass], ["eval", "Evaluación EDIA", BarChart3]].map(([k, l, Icon]) => (
-              <button key={k} onClick={() => setTab(k)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition ${tab === k ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/30" : "text-slate-500 hover:text-slate-300"}`}>
-                <Icon size={15} /> {l}
+            {[["guide", "Guía en Vivo", "Guía", Compass], ["support", "Soporte IA (Chat)", "Soporte", LifeBuoy], ["eval", "Evaluación EDIA", "Evaluación", BarChart3]].map(([k, l, short, Icon]) => (
+              <button key={k} onClick={() => setTab(k)} className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 px-1 rounded-xl text-xs sm:text-sm font-semibold transition ${tab === k ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/30" : "text-slate-500 hover:text-slate-300 border border-transparent"}`}>
+                <Icon size={15} className="shrink-0" /> <span className="hidden 2xl:inline truncate">{l}</span><span className="2xl:hidden truncate">{short}</span>
                 {k === "eval" && lastEval && <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${passed ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>{lastEval.score}</span>}
+                {k === "support" && supportLoading && <Loader2 size={12} className="animate-spin text-cyan-300" />}
               </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-            {tab === "guide" ? (
-              <GuidePanel question={current} mode={cfg.mode} unlocked={res.attempts.length > 0} hideHints={hideHints} setHideHints={setHideHints} />
-            ) : (
-              <EvalPanel evalData={lastEval} loading={loading} attempts={res.attempts.length} onNext={() => goNext(false)} onSkip={() => goNext(true)} isLast={idx === questions.length - 1} mode={cfg.mode} />
-            )}
-          </div>
+          {tab === "support" ? (
+            <SupportPanel messages={supportMsgs} loading={supportLoading} onAsk={askSupport} hasDraft={!!answer.trim()} api={api} isAgent={isAgent} />
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+              {tab === "guide" ? (
+                <GuidePanel question={current} mode={cfg.mode} unlocked={res.attempts.length > 0} hideHints={hideHints} setHideHints={setHideHints} />
+              ) : (
+                <EvalPanel evalData={lastEval} loading={loading} attempts={res.attempts.length} onNext={() => goNext(false)} onSkip={() => goNext(true)} isLast={idx === questions.length - 1} mode={cfg.mode} />
+              )}
+            </div>
+          )}
         </aside>
       </div>
     </div>
@@ -1474,7 +1676,7 @@ const DEFAULT_CFG = { role: "", company: "", level: "Semi-Senior", language: "Es
 
 export default function EDIAInterviewCopilot() {
   const [screen, setScreen] = useState("landing");
-  const [api, setApi] = useState({ provider: "anthropic", key: "", model: "" });
+  const [api, setApi] = useState({ key: "", model: "", status: "checking", error: "" });
   const [showApi, setShowApi] = useState(false);
   const [cfg, setCfg] = useState(DEFAULT_CFG);
   const [questions, setQuestions] = useState([]);
@@ -1485,8 +1687,21 @@ export default function EDIAInterviewCopilot() {
 
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 6000); return () => clearTimeout(t); }, [toast]);
 
+  const connect = useCallback(async (conf) => {
+    setApi({ key: conf.key, model: conf.model, status: "checking", error: "" });
+    try {
+      const ok = await pingAI(conf);
+      setApi({ key: conf.key, model: conf.model, status: ok ? "online" : "offline", error: ok ? "" : "Respuesta inesperada" });
+    } catch (err) {
+      setApi({ key: conf.key, model: conf.model, status: "offline", error: err.message || "Sin conexión" });
+    }
+  }, []);
+
+  useEffect(() => { connect({ key: "", model: "" }); }, [connect]);
+
   const apiFailed = useCallback((msg) => {
-    setToast(`La API no respondió (${msg.slice(0, 90)}). EDIA usó el Motor Demo Offline.`);
+    setApi((a) => ({ ...a, status: "offline", error: msg }));
+    setToast(`La IA no respondió (${(msg || "").slice(0, 80)}). EDIA activó el Modo Respaldo Local.`);
   }, []);
 
   const launch = async (c) => {
@@ -1495,10 +1710,10 @@ export default function EDIAInterviewCopilot() {
     let qs;
     const started = Date.now();
     try {
-      if (!api.key) throw new Error("demo");
+      if (api.status === "offline") throw new Error("local");
       qs = await generateQuestionsAI(api, c);
     } catch (err) {
-      if (api.key && err.message !== "demo") apiFailed(err.message);
+      if (err.message !== "local") apiFailed(err.message);
       qs = buildOfflineQuestions(c);
     }
     const wait = 900 - (Date.now() - started);
@@ -1530,14 +1745,14 @@ export default function EDIAInterviewCopilot() {
         {screen === "landing" && <Landing onStart={() => setScreen("setup")} />}
         {screen === "setup" && <Setup initial={cfg} onBack={() => setScreen("landing")} onLaunch={launch} loading={preparing} />}
         {screen === "workspace" && questions.length > 0 && (
-          <Workspace key={sessionKey} cfg={cfg} api={api} questions={questions} onHome={goHome} setApiFailed={apiFailed} onFinish={(r) => { setResults(r); setScreen("report"); }} />
+          <Workspace key={sessionKey} cfg={cfg} api={api} questions={questions} onHome={goHome} onOpenApi={() => setShowApi(true)} setApiFailed={apiFailed} onFinish={(r) => { setResults(r); setScreen("report"); }} />
         )}
         {screen === "report" && (
           <Report cfg={cfg} questions={questions} results={results.length ? results : questions.map(() => ({ attempts: [], skipped: false }))} onRestart={() => setScreen("setup")} onHome={() => setScreen("landing")} />
         )}
       </div>
 
-      {showApi && <ApiModal api={api} onSave={setApi} onClose={() => setShowApi(false)} />}
+      {showApi && <ApiModal api={api} onSave={connect} onClose={() => setShowApi(false)} />}
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl border border-amber-500/40 bg-slate-900/95 text-amber-200 text-sm shadow-2xl flex gap-2 fade-in">
           <AlertTriangle size={18} className="shrink-0 text-amber-400" /> {toast}
