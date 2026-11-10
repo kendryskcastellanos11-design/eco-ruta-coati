@@ -168,3 +168,18 @@ barra del navegador, y funciona offline una vez instalada) desde el menú
 - Añadir más misiones reutilizando `sensor-core.js` con nuevas entradas en
   `MISIONES` (distinta pista, distintos obstáculos, incluso una tercera
   dificultad intermedia).
+
+## EDIA — Kit de práctica para docentes (`edia/`)
+
+[`edia/index.html`](edia/index.html) es una plataforma de formación técnica
+(sin dependencias, se abre con doble clic) para preparar pruebas prácticas de
+robótica educativa. Cada proyecto trae: escenario con usuario simulado,
+materiales y conexiones pin por pin (con diagrama), código listo para subir
+al ESP32 explicado por bloques, guía de defensa en 3 pasos, preguntas
+frecuentes del evaluador, tabla de fallas, simulador y checklist con
+cronómetro de simulacro.
+
+- **Proyecto 1 · Semáforo de distancia** — ESP32 + HC-SR04 + 3 LEDs +
+  zumbador: la versión física del semáforo de Sendel (mismos umbrales
+  40 cm / 15 cm).
+- Para añadir proyectos, agrega un objeto al arreglo `PROYECTOS` del archivo.

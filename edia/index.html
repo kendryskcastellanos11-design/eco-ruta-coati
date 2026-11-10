@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDIA · Kit de práctica</title>
+<meta name="description" content="EDIA: asistente de formación técnica para docentes. Kits de proyectos físicos paso a paso con ESP32 para practicar pruebas técnicas.">
+<style>
+:root{
+  --bg:#f6f7fb; --card:#ffffff; --ink:#1b2033; --muted:#5b6380; --line:#e2e5ef;
+  --brand:#1f6feb; --brand-soft:#e7f0ff; --ok:#1a9b55; --warn:#d99a00; --bad:#d23b3b;
+  --code-bg:#0f1424; --code-ink:#e6e9f5; --shadow:0 1px 2px rgba(20,30,60,.06),0 4px 16px rgba(20,30,60,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1220; --card:#161b2d; --ink:#e7eaf4; --muted:#9aa3c0; --line:#283050;
+    --brand:#5b9bff; --brand-soft:#1b2a4a; --code-bg:#0a0e1a; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1220; --card:#161b2d; --ink:#e7eaf4; --muted:#9aa3c0; --line:#283050;
+  --brand:#5b9bff; --brand-soft:#1b2a4a; --code-bg:#0a0e1a; --shadow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.top{max-width:1040px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.15rem}
+.logo .dot{width:34px;height:34px;border-radius:10px;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:.95rem}
+.logo small{display:block;font-weight:500;color:var(--muted);font-size:.78rem;line-height:1.1}
+.spacer{flex:1}
+.timer{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+.timer b{font-size:1.2rem;min-width:4.2ch;text-align:right}
+.timer b.late{color:var(--bad)}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:7px 12px}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+button:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+main{max-width:1040px;margin:0 auto;padding:20px 16px 60px}
+.intro{display:grid;gap:4px;margin-bottom:16px}
+.intro h1{margin:0;font-size:1.6rem;line-height:1.2}
+.intro p{margin:0;color:var(--muted)}
+.projects{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px}
+.pcard{flex:0 0 auto;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:8px 12px;text-align:left}
+.pcard[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.pcard[disabled]{opacity:.55;cursor:not-allowed}
+.pcard span{display:block;font-size:.75rem;color:var(--muted)}
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+nav.tabs button[aria-selected="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow);margin-bottom:14px}
+.card h2{margin:0 0 8px;font-size:1.2rem}
+.card h3{margin:16px 0 6px;font-size:1rem}
+.muted{color:var(--muted)}
+.edia{display:flex;gap:12px;align-items:flex-start;background:var(--brand-soft);border-radius:12px;padding:12px 14px;margin:10px 0}
+.edia .av{flex:0 0 32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.8rem}
+.user{display:grid;grid-template-columns:auto 1fr;gap:4px 14px}
+.user dt{font-weight:600}
+.user dd{margin:0}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.tablewrap{overflow-x:auto}
+.wire{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid rgba(0,0,0,.2)}
+code,.pin{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em}
+.pin{background:var(--brand-soft);padding:1px 6px;border-radius:6px;font-weight:700;white-space:nowrap}
+.alert{border-left:4px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 10%,transparent);border-radius:6px;margin:10px 0}
+.alert.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,transparent)}
+pre{background:var(--code-bg);color:var(--code-ink);padding:14px;border-radius:12px;overflow:auto;font-size:.85rem;line-height:1.45;margin:0}
+.codebar{display:flex;justify-content:space-between;align-items:center;margin:8px 0;gap:8px;flex-wrap:wrap}
+ol.steps{padding-left:1.2em}
+ol.steps li{margin:6px 0}
+.check{list-style:none;padding:0;margin:0}
+.check li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
+.check input{width:20px;height:20px;margin-top:2px;flex:0 0 auto}
+.check li.done label{text-decoration:line-through;color:var(--muted)}
+.progress{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0 12px}
+.progress i{display:block;height:100%;background:var(--ok);width:0;transition:width .25s}
+.sim{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center}
+.lights{display:flex;flex-direction:column;gap:10px;background:#1a1d27;padding:12px;border-radius:16px}
+.light{width:46px;height:46px;border-radius:50%;background:#333846;transition:.15s}
+.light.g.on{background:#2ee07a;box-shadow:0 0 18px #2ee07a}
+.light.y.on{background:#ffc928;box-shadow:0 0 18px #ffc928}
+.light.r.on{background:#ff4d4d;box-shadow:0 0 18px #ff4d4d}
+input[type=range]{width:100%}
+.serial{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--code-bg);color:#9ff0b8;border-radius:10px;padding:10px;font-size:.85rem;min-height:3.2em}
+.qa details{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0}
+.qa summary{cursor:pointer;font-weight:600}
+.defense{counter-reset:d;list-style:none;padding:0}
+.defense li{counter-increment:d;position:relative;padding:10px 0 10px 48px;border-bottom:1px solid var(--line)}
+.defense li::before{content:counter(d);position:absolute;left:0;top:10px;width:34px;height:34px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800}
+svg text{font-family:system-ui,sans-serif}
+.diagram{width:100%;height:auto;max-width:720px;display:block;margin:6px auto}
+@media (max-width:600px){
+  .sim{grid-template-columns:1fr}
+  .lights{flex-direction:row;justify-content:center}
+  .intro h1{font-size:1.3rem}
+}
+@media print{header,nav.tabs,.projects,button{display:none!important}.panel{display:block!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="logo"><div class="dot">ED</div><div>EDIA<small>Formación técnica · EDT Plus</small></div></div>
+    <div class="spacer"></div>
+    <div class="timer" title="Simulacro de prueba con tiempo límite">
+      ⏱ <b id="clock">45:00</b>
+      <button id="tStart" class="primary">Iniciar simulacro</button>
+      <button id="tReset" aria-label="Reiniciar cronómetro">↺</button>
+    </div>
+    <button id="theme" aria-label="Cambiar tema">🌓</button>
+  </div>
+</header>
+
+<main>
+  <section class="intro">
+    <h1 id="pTitle"></h1>
+    <p id="pSub"></p>
+  </section>
+
+  <div class="projects" id="projects" role="group" aria-label="Proyectos de práctica"></div>
+
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+
+  <div id="panels"></div>
+</main>
+
+<script>
+/* =========================================================
+   EDIA — datos de los proyectos de práctica.
+   Para añadir un proyecto nuevo, agrega un objeto a PROYECTOS.
+   ========================================================= */
+const PROYECTOS = [
+{
+  id: "p1",
+  nombre: "Proyecto 1 · Semáforo de distancia",
+  nivel: "Nivel básico · 45 min",
+  disponible: true,
+  sub: "ESP32 + sensor ultrasónico HC-SR04 + 3 LEDs + zumbador. La versión física del semáforo de Sendel en Eco Ruta.",
+  minutos: 45,
+
+  escenario: {
+    usuario: {
+      "Usuario": "Prof. Carmen Rivas, maestra de 3.er grado (8–9 años)",
+      "Lugar": "Aula con televisor interactivo / pizarra digital",
+      "Problema": "Durante las clases los niños se levantan y se pegan a la pantalla. Se tapan entre ellos, la maestra pierde tiempo llamándoles la atención y es malo para la vista.",
+      "Lo que pide": "“Quiero algo que los niños entiendan sin que yo hable: que vean solos cuándo están demasiado cerca.”",
+      "Restricción": "Debe ser barato, funcionar con un cargador USB y que ella pueda ajustar las distancias.",
+    },
+    solucion: "Un <b>semáforo de distancia</b> pegado bajo la pantalla. Un sensor mide a qué distancia está el niño más cercano: 🟢 <b>verde</b> = distancia correcta, 🟡 <b>amarillo</b> = te estás acercando, 🔴 <b>rojo + pitido</b> = demasiado cerca, retrocede.",
+    reglas: [
+      ["🟢 Verde", "más de 40 cm", "Todo bien"],
+      ["🟡 Amarillo", "entre 15 y 40 cm", "Cuidado, te acercas"],
+      ["🔴 Rojo + pitido", "15 cm o menos", "Demasiado cerca, retrocede"],
+    ],
+    edia: "Fíjate que el evaluador no te califica solo por “que prenda”. Te califica por <b>entender el problema del usuario</b>. Antes de tocar un cable, repite el problema con tus palabras: “La profesora necesita que los niños sepan solos cuándo están muy cerca”. Eso ya es un punto a tu favor."
+  },
+
+  materiales: [
+    ["1", "Placa ESP32 DevKit V1 (30 o 38 pines)", "El “cerebro”. Lee el sensor y decide qué luz encender."],
+    ["1", "Sensor ultrasónico HC-SR04", "Los “ojos”. Manda un sonido que no oímos y mide cuánto tarda en volver (como un murciélago)."],
+    ["3", "LEDs: verde, amarillo y rojo (5 mm)", "Las luces del semáforo."],
+    ["3", "Resistencias de 220 Ω (rojo-rojo-marrón)", "Protegen cada LED para que no se queme."],
+    ["1", "Resistencia de 1 kΩ (marrón-negro-rojo)", "Para bajar el voltaje del sensor (ver alerta)."],
+    ["1", "Resistencia de 2 kΩ (rojo-negro-rojo) o dos de 1 kΩ en serie", "Junto con la de 1 kΩ forma el “divisor”."],
+    ["1", "Zumbador (buzzer) activo 3.3–5 V — opcional", "El pitido en rojo."],
+    ["1", "Protoboard (placa de pruebas)", "Para conectar sin soldar."],
+    ["~15", "Cables dupont macho-macho", "Las “venas” que unen todo."],
+    ["1", "Cable micro-USB o USB-C <b>de datos</b>", "Para subir el programa y dar energía."],
+  ],
+
+  conexiones: [
+    // [componente, patita, va a, color sugerido, nota]
+    ["Sensor HC-SR04", "VCC", "VIN (5V)", "#e53935", "Energía de 5 V. En algunas placas dice “5V” en vez de VIN."],
+    ["Sensor HC-SR04", "GND", "GND", "#222222", "Tierra (negativo)."],
+    ["Sensor HC-SR04", "TRIG", "GPIO 5 (D5)", "#fb8c00", "Por aquí el ESP32 dice “¡dispara el sonido!”."],
+    ["Sensor HC-SR04", "ECHO", "GPIO 18 (D18) pasando por el divisor", "#8e24aa", "ECHO → resistencia 1 kΩ → GPIO 18. Y desde GPIO 18 → resistencia 2 kΩ → GND."],
+    ["LED verde", "Pata larga (+)", "GPIO 25 (D25) a través de 220 Ω", "#43a047", "GPIO 25 → resistencia 220 Ω → pata larga."],
+    ["LED amarillo", "Pata larga (+)", "GPIO 26 (D26) a través de 220 Ω", "#fdd835", "GPIO 26 → resistencia 220 Ω → pata larga."],
+    ["LED rojo", "Pata larga (+)", "GPIO 27 (D27) a través de 220 Ω", "#e53935", "GPIO 27 → resistencia 220 Ω → pata larga."],
+    ["Los 3 LEDs", "Pata corta (−)", "GND (fila azul de la protoboard)", "#222222", "Todas las patas cortas a la misma línea de tierra."],
+    ["Zumbador (opcional)", "+ (pata larga / roja)", "GPIO 14 (D14)", "#1e88e5", "Pitido cuando está en rojo."],
+    ["Zumbador (opcional)", "− (pata corta / negra)", "GND", "#222222", ""],
+    ["ESP32", "GND", "Fila azul (−) de la protoboard", "#222222", "Une la tierra de la placa con la de todos los componentes. ¡Sin esto nada funciona!"],
+  ],
+
+  pasosArmado: [
+    "Desconecta el ESP32 del USB. <b>Nunca</b> conectes cables con la placa encendida.",
+    "Coloca el ESP32 sobre la protoboard de forma que quede “a caballo” sobre la canaleta del centro (un lado de pines en cada mitad).",
+    "Lleva un cable desde un pin <span class='pin'>GND</span> del ESP32 a la fila azul (−) de la protoboard. Esa fila será la tierra de todos.",
+    "Pon los 3 LEDs en fila. Pata <b>corta</b> de cada uno a la fila azul (−). En la pata <b>larga</b>, coloca una resistencia de 220 Ω.",
+    "Desde el otro extremo de cada resistencia: verde → <span class='pin'>GPIO 25</span>, amarillo → <span class='pin'>GPIO 26</span>, rojo → <span class='pin'>GPIO 27</span>.",
+    "Coloca el sensor HC-SR04 mirando hacia afuera. <span class='pin'>VCC</span> → <span class='pin'>VIN</span>, <span class='pin'>GND</span> → fila azul, <span class='pin'>TRIG</span> → <span class='pin'>GPIO 5</span>.",
+    "Arma el divisor: <span class='pin'>ECHO</span> → resistencia 1 kΩ → un punto libre de la protoboard. De ese punto: un cable a <span class='pin'>GPIO 18</span> y una resistencia de 2 kΩ hacia la fila azul (GND).",
+    "(Opcional) Zumbador: pata + → <span class='pin'>GPIO 14</span>, pata − → fila azul.",
+    "Revisa con el dedo cada cable contra la tabla de conexiones antes de enchufar. Luego conecta el USB.",
+  ],
+
+  codigo: String.raw`/*
+  EDIA · Proyecto 1 — Semáforo de distancia
+  Placa: ESP32 DevKit V1   |   Sensor: HC-SR04
+
+  Qué hace:
+    - Mide la distancia con el sensor ultrasónico.
+    - Más de 40 cm  -> LED VERDE
+    - 15 a 40 cm    -> LED AMARILLO
+    - 15 cm o menos -> LED ROJO + pitido
+*/
+
+// ---------- 1. ¿Dónde está conectado cada cable? ----------
+const int PIN_TRIG     = 5;    // Sensor TRIG
+const int PIN_ECHO     = 18;   // Sensor ECHO (a través del divisor)
+const int LED_VERDE    = 25;
+const int LED_AMARILLO = 26;
+const int LED_ROJO     = 27;
+const int ZUMBADOR     = 14;   // Opcional
+
+// ---------- 2. Distancias que la profesora puede cambiar ----------
+const int DISTANCIA_ROJO     = 15;  // cm: "demasiado cerca"
+const int DISTANCIA_AMARILLO = 40;  // cm: "te estás acercando"
+
+// ---------- 3. Preparación (se ejecuta UNA vez al encender) ----------
+void setup() {
+  Serial.begin(115200);              // Para ver mensajes en la computadora
+
+  pinMode(PIN_TRIG, OUTPUT);         // El ESP32 "habla" por TRIG
+  pinMode(PIN_ECHO, INPUT);          // y "escucha" por ECHO
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_AMARILLO, OUTPUT);
+  pinMode(LED_ROJO, OUTPUT);
+  pinMode(ZUMBADOR, OUTPUT);
+
+  // Prueba de luces al arrancar: así sabes que los LEDs están bien puestos
+  encender(LED_VERDE);    delay(300);
+  encender(LED_AMARILLO); delay(300);
+  encender(LED_ROJO);     delay(300);
+  apagarTodo();
+
+  Serial.println("Semaforo de distancia listo");
+}
+
+// ---------- 4. Medir la distancia en centímetros ----------
+float medirDistancia() {
+  // Enviamos un "grito" ultrasónico de 10 microsegundos
+  digitalWrite(PIN_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_TRIG, LOW);
+
+  // Medimos cuánto tarda en volver el eco (máx. 30 ms = ~5 m)
+  long tiempo = pulseIn(PIN_ECHO, HIGH, 30000);
+
+  if (tiempo == 0) {
+    return 999;   // No volvió el eco: no hay nada cerca
+  }
+
+  // El sonido viaja 0.0343 cm por microsegundo. Va y vuelve, por eso / 2
+  return tiempo * 0.0343 / 2;
+}
+
+// ---------- 5. Ayudantes para las luces ----------
+void apagarTodo() {
+  digitalWrite(LED_VERDE, LOW);
+  digitalWrite(LED_AMARILLO, LOW);
+  digitalWrite(LED_ROJO, LOW);
+  digitalWrite(ZUMBADOR, LOW);
+}
+
+void encender(int led) {
+  apagarTodo();
+  digitalWrite(led, HIGH);
+}
+
+// ---------- 6. Programa principal (se repite sin parar) ----------
+void loop() {
+  float distancia = medirDistancia();
+
+  Serial.print("Distancia: ");
+  Serial.print(distancia);
+  Serial.print(" cm  ->  ");
+
+  if (distancia <= DISTANCIA_ROJO) {
+    encender(LED_ROJO);
+    digitalWrite(ZUMBADOR, HIGH);    // Pitido
+    Serial.println("ROJO: demasiado cerca");
+  }
+  else if (distancia <= DISTANCIA_AMARILLO) {
+    encender(LED_AMARILLO);
+    Serial.println("AMARILLO: te acercas");
+  }
+  else {
+    encender(LED_VERDE);
+    Serial.println("VERDE: distancia correcta");
+  }
+
+  delay(100);   // Medimos unas 10 veces por segundo
+}
+`,
+
+  codigoExplicado: [
+    ["Bloque 1 — ¿Dónde está cada cable?", "Le pone nombre a cada pin. Si en la prueba te piden cambiar un LED de pin, solo cambias el número aquí."],
+    ["Bloque 2 — Distancias", "Son las reglas del usuario (15 cm y 40 cm). Si la profesora quiere otra distancia, se cambia aquí y se vuelve a subir."],
+    ["Bloque 3 — setup()", "Se ejecuta una sola vez al encender. Dice qué pines son salida (LEDs) y cuál es entrada (ECHO), y hace una prueba de luces."],
+    ["Bloque 4 — medirDistancia()", "Dispara un sonido, cronometra el eco y lo convierte a centímetros. Es como contar los segundos entre el rayo y el trueno."],
+    ["Bloque 5 — Ayudantes", "Pequeñas funciones para no repetir código: apagar todo y encender una sola luz."],
+    ["Bloque 6 — loop()", "El corazón: mide, compara con las reglas (si… si no si… si no) y enciende la luz correcta. Se repite unas 10 veces por segundo."],
+  ],
+
+  subir: [
+    "Instala <b>Arduino IDE 2</b> (arduino.cc/en/software).",
+    "Ve a <b>Archivo → Preferencias</b> y en “URLs adicionales de gestor de placas” pega:<br><code>https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json</code>",
+    "Ve a <b>Herramientas → Placa → Gestor de placas</b>, busca <b>esp32</b> (de Espressif) e instálalo.",
+    "Elige <b>Herramientas → Placa → ESP32 Dev Module</b> y en <b>Puerto</b> el que aparezca al conectar el ESP32 (COM3, COM4… o /dev/ttyUSB0).",
+    "Pega el código, pulsa ✔ <b>Verificar</b> y luego ➜ <b>Subir</b>.",
+    "Si se queda en “Connecting…”, mantén presionado el botón <b>BOOT</b> de la placa hasta que empiece a subir.",
+    "Abre <b>Herramientas → Monitor Serie</b> a <b>115200 baudios</b> para ver las distancias.",
+  ],
+
+  defensa: [
+    ["Empieza por el usuario, no por los cables (30 s)",
+     "“La profesora Carmen tenía un problema: los niños se pegaban a la pantalla. Necesitaba que ellos mismos supieran cuándo estaban muy cerca, sin que ella tuviera que hablar. Mi solución es un semáforo de distancia.”"],
+    ["Explica cómo funciona con una analogía y demuéstralo en vivo (1–2 min)",
+     "“El sensor funciona como un murciélago: manda un sonido y mide cuánto tarda el eco. El ESP32 es el cerebro: compara esa distancia con dos reglas, 40 y 15 cm, y enciende la luz.” Luego <b>acerca la mano</b> despacio: verde → amarillo → rojo con pitido. Abre el Monitor Serie para que vea los números reales."],
+    ["Muestra que lo dominas: seguridad, ajuste y mejora (1 min)",
+     "“Usé resistencias de 220 Ω para proteger los LEDs y un divisor porque el sensor da 5 V y el ESP32 solo aguanta 3,3 V. Si la profesora quiere otras distancias, solo cambio estos dos números (muéstralos). Como mejora, el ESP32 tiene Wi-Fi: podría enviar cuántas veces se activó el rojo en la clase.”"],
+  ],
+
+  preguntas: [
+    ["¿Por qué usaste resistencias con los LEDs?", "Limitan la corriente. Sin ellas el LED recibe demasiada y se quema (o daña el pin del ESP32)."],
+    ["¿Por qué el divisor de voltaje en ECHO?", "El HC-SR04 funciona a 5 V y su pin ECHO devuelve 5 V. Los pines del ESP32 trabajan a 3,3 V. Las resistencias de 1 kΩ y 2 kΩ bajan la señal a unos 3,3 V para no dañar la placa."],
+    ["¿Cómo calcula la distancia?", "Mide el tiempo que tarda el eco en volver. El sonido recorre 0,0343 cm por microsegundo; como va y vuelve, se divide entre 2."],
+    ["¿Qué pasa si no hay nada delante?", "El eco no regresa a tiempo; el programa lo toma como “lejos” (999 cm) y muestra verde."],
+    ["¿Qué diferencia hay entre setup() y loop()?", "setup() se ejecuta una vez al encender (preparación). loop() se repite sin parar (el trabajo)."],
+    ["¿Cómo lo adaptarías a otro usuario?", "Ej.: sensor de estacionamiento para el portón escolar, alarma de distancia en un laboratorio, o contador de visitas a la biblioteca. Cambian las distancias y la acción, la lógica es la misma."],
+  ],
+
+  fallas: [
+    ["No sube el programa / “Failed to connect”", "Mantén pulsado BOOT al subir. Prueba otro cable USB (muchos solo cargan, no transmiten datos). Revisa el puerto elegido."],
+    ["No aparece ningún puerto", "Falta el driver del chip USB (CP210x o CH340). Instálalo y reinicia el IDE."],
+    ["Un LED no prende nunca", "Está al revés: la pata larga va hacia la resistencia/GPIO y la corta a GND. Revisa que esté en la fila correcta."],
+    ["El monitor serie muestra símbolos raros", "La velocidad no coincide: elige 115200 baudios abajo a la derecha."],
+    ["Siempre marca 999 o 0", "Revisa TRIG y ECHO (¿intercambiados?), VCC en VIN (5 V) y que el GND del sensor esté unido al del ESP32."],
+    ["Las luces parpadean entre dos colores", "Es normal justo en el límite (ej. 40 cm). Mejora: tomar 3 medidas y promediar."],
+  ],
+
+  checklist: [
+    "Leí y repetí con mis palabras el problema del usuario",
+    "Identifiqué todos los materiales",
+    "Conecté GND del ESP32 a la fila de tierra",
+    "Conecté los 3 LEDs con su resistencia de 220 Ω",
+    "Conecté el sensor (VCC, GND, TRIG)",
+    "Armé el divisor de voltaje en ECHO → GPIO 18",
+    "Revisé cada cable contra la tabla antes de enchufar",
+    "Subí el código sin errores",
+    "Probé verde → amarillo → rojo con la mano",
+    "Ensayé la defensa en voz alta (3 pasos)",
+  ],
+},
+{ id:"p2", nombre:"Proyecto 2 · Riego automático de la huerta escolar", nivel:"Próximamente", disponible:false },
+{ id:"p3", nombre:"Proyecto 3 · Contador de asistencia con botón y pantalla", nivel:"Próximamente", disponible:false },
+{ id:"p4", nombre:"Proyecto 4 · Alarma de ruido para el aula", nivel:"Próximamente", disponible:false },
+];
+
+/* ================= utilidades ================= */
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+/* ================= tema ================= */
+(function(){
+  const t = store.get("edia-theme", null);
+  if (t) document.documentElement.dataset.theme = t;
+  $("#theme").onclick = () => {
+    const dark = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = dark ? "light" : "dark";
+    document.documentElement.dataset.theme = next; store.set("edia-theme", next);
+  };
+})();
+
+/* ================= diagrama SVG ================= */
+function diagrama(){
+  // Esquema simplificado (no a escala): ESP32 a la izquierda, componentes a la derecha.
+  const pins = [
+    {y:60,  label:"VIN (5V)", to:"VCC",  dev:"s", c:"#e53935"},
+    {y:90,  label:"GND",      to:"GND",  dev:"s", c:"#555"},
+    {y:120, label:"GPIO 5",   to:"TRIG", dev:"s", c:"#fb8c00"},
+    {y:150, label:"GPIO 18",  to:"ECHO", dev:"s", c:"#8e24aa"},
+    {y:215, label:"GPIO 25",  to:"verde",   dev:"l", c:"#43a047"},
+    {y:255, label:"GPIO 26",  to:"amarillo",dev:"l", c:"#f9a825"},
+    {y:295, label:"GPIO 27",  to:"rojo",    dev:"l", c:"#e53935"},
+    {y:345, label:"GPIO 14",  to:"buzzer",  dev:"b", c:"#1e88e5"},
+  ];
+  let s = `<svg class="diagram" viewBox="0 0 720 400" role="img" aria-label="Esquema de conexiones del ESP32 con el sensor, los LEDs y el zumbador">
+  <rect x="20" y="30" width="150" height="345" rx="12" fill="#14324f" />
+  <text x="95" y="22" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">ESP32</text>`;
+  pins.forEach(p => {
+    s += `<circle cx="170" cy="${p.y}" r="5" fill="#ffd54f"/><text x="160" y="${p.y+4}" text-anchor="end" font-size="12" fill="#fff">${p.label}</text>`;
+  });
+  // sensor
+  s += `<rect x="470" y="40" width="200" height="130" rx="10" fill="#1565c0"/>
+  <circle cx="530" cy="105" r="26" fill="#cfd8dc"/><circle cx="610" cy="105" r="26" fill="#cfd8dc"/>
+  <text x="570" y="160" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">HC-SR04</text>`;
+  const sp = {VCC:60, GND:90, TRIG:120, ECHO:150};
+  Object.entries(sp).forEach(([k,y]) => s += `<text x="478" y="${y+4}" font-size="11" font-weight="700" fill="#fff">${k}</text>`);
+  // divisor
+  s += `<rect x="300" y="143" width="44" height="14" rx="3" fill="#d7b98e"/><text x="322" y="138" text-anchor="middle" font-size="11" fill="currentColor">1 kΩ</text>
+  <line x1="250" y1="150" x2="250" y2="164" stroke="#8e24aa" stroke-width="3"/>
+  <rect x="243" y="164" width="14" height="26" rx="3" fill="#d7b98e"/><text x="238" y="181" text-anchor="end" font-size="11" fill="currentColor">2 kΩ → GND</text>`;
+  // leds
+  const leds = {verde:[215,"#43a047"], amarillo:[255,"#f9a825"], rojo:[295,"#e53935"]};
+  Object.entries(leds).forEach(([k,[y,c]]) => {
+    s += `<rect x="300" y="${y-7}" width="44" height="14" rx="3" fill="#d7b98e"/>
+    <circle cx="520" cy="${y}" r="13" fill="${c}"/><text x="542" y="${y+4}" font-size="12" fill="currentColor">LED ${k} → GND</text>`;
+  });
+  s += `<text x="322" y="203" text-anchor="middle" font-size="11" fill="currentColor">220 Ω</text>`;
+  s += `<rect x="505" y="330" width="30" height="30" rx="15" fill="#263238"/><text x="545" y="349" font-size="12" fill="currentColor">Zumbador → GND</text>`;
+  // cables
+  pins.forEach(p => {
+    let x2 = p.dev==="s" ? 470 : p.dev==="l" ? 507 : 505;
+    if (p.to === "ECHO") {
+      s += `<path d="M175 150 H300 M344 150 H470" stroke="${p.c}" stroke-width="3" fill="none"/>`;
+    } else if (p.dev === "l") {
+      s += `<path d="M175 ${p.y} H300 M344 ${p.y} H${x2}" stroke="${p.c}" stroke-width="3" fill="none"/>`;
+    } else {
+      s += `<line x1="175" y1="${p.y}" x2="${x2}" y2="${p.y}" stroke="${p.c}" stroke-width="3"/>`;
+    }
+  });
+  s += `<text x="20" y="395" font-size="11" fill="currentColor" opacity=".7">Esquema simplificado, no a escala. Todas las tierras (GND) van a la misma fila azul de la protoboard.</text></svg>`;
+  return s;
+}
+
+/* ================= render ================= */
+const TABS = [
+  ["escenario","1 · Escenario"],
+  ["armado","2 · Conexiones"],
+  ["codigo","3 · Código"],
+  ["defensa","4 · Defensa"],
+  ["simulador","Simulador"],
+  ["checklist","Checklist"],
+];
+let actual = PROYECTOS[0];
+let tab = store.get("edia-tab", "escenario");
+
+function renderProyectos(){
+  const box = $("#projects"); box.innerHTML = "";
+  PROYECTOS.forEach(p => {
+    const b = el("button", {className:"pcard", disabled:!p.disponible}, `${p.nombre}<span>${p.nivel}</span>`);
+    b.setAttribute("aria-pressed", p.id === actual.id);
+    b.onclick = () => { actual = p; render(); };
+    box.appendChild(b);
+  });
+}
+
+function renderTabs(){
+  const nav = $("#tabs"); nav.innerHTML = "";
+  TABS.forEach(([id, label]) => {
+    const b = el("button", {role:"tab"}, label);
+    b.setAttribute("aria-selected", id === tab);
+    b.onclick = () => { tab = id; store.set("edia-tab", id); renderTabs(); renderPanel(); window.scrollTo({top:0,behavior:"smooth"}); };
+    nav.appendChild(b);
+  });
+}
+
+const ediaSay = txt => `<div class="edia"><div class="av">EDIA</div><div>${txt}</div></div>`;
+
+const PANELS = {
+  escenario(p){
+    const u = Object.entries(p.escenario.usuario).map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    const r = p.escenario.reglas.map(x => `<tr><td>${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td></tr>`).join("");
+    return `<div class="card"><h2>👩‍🏫 Tu usuario simulado</h2><dl class="user">${u}</dl></div>
+    <div class="card"><h2>💡 La solución que vas a construir</h2><p>${p.escenario.solucion}</p>
+      <div class="tablewrap"><table><thead><tr><th>Luz</th><th>Distancia</th><th>Mensaje al niño</th></tr></thead><tbody>${r}</tbody></table></div>
+      ${ediaSay(p.escenario.edia)}</div>`;
+  },
+  armado(p){
+    const m = p.materiales.map(x => `<tr><td>${x[0]}</td><td><b>${x[1]}</b></td><td>${x[2]}</td></tr>`).join("");
+    const c = p.conexiones.map(x => `<tr><td>${x[0]}</td><td><span class="pin">${x[1]}</span></td><td><span class="wire" style="background:${x[3]}"></span><span class="pin">${x[2]}</span></td><td class="muted">${x[4]}</td></tr>`).join("");
+    const s = p.pasosArmado.map(x => `<li>${x}</li>`).join("");
+    return `<div class="card"><h2>🧰 Materiales</h2><div class="tablewrap"><table><thead><tr><th>Cant.</th><th>Componente</th><th>¿Para qué sirve?</th></tr></thead><tbody>${m}</tbody></table></div></div>
+    <div class="card"><h2>🔌 Tabla de conexiones (pin por pin)</h2>
+      <div class="alert bad"><b>Importante:</b> el HC-SR04 trabaja a 5 V, pero los pines del ESP32 solo aguantan 3,3 V. Por eso el cable de <b>ECHO</b> pasa por un “divisor” de dos resistencias (1 kΩ y 2 kΩ). Si consigues la versión <b>HC-SR04P</b> (3,3 V), puedes conectar VCC a <span class="pin">3V3</span> y ECHO directo a GPIO 18.</div>
+      <div class="tablewrap"><table><thead><tr><th>Componente</th><th>Patita</th><th>Va a (ESP32)</th><th>Nota</th></tr></thead><tbody>${c}</tbody></table></div>
+      ${diagrama()}
+      ${ediaSay("Truco para no confundirte con los LEDs: <b>la pata larga es la que “manda”</b> (va al pin del ESP32 con su resistencia) y la corta va a tierra. Si un LED no prende, casi siempre es porque está al revés.")}</div>
+    <div class="card"><h2>🪛 Armado paso a paso</h2><ol class="steps">${s}</ol></div>`;
+  },
+  codigo(p){
+    const e = p.codigoExplicado.map(x => `<h3>${x[0]}</h3><p>${x[1]}</p>`).join("");
+    const s = p.subir.map(x => `<li>${x}</li>`).join("");
+    return `<div class="card"><h2>⬆️ Cómo subir el código (Arduino IDE)</h2><ol class="steps">${s}</ol></div>
+    <div class="card"><div class="codebar"><h2 style="margin:0">💻 Código listo para copiar</h2>
+      <div><button id="copy" class="primary">Copiar código</button> <button id="dl">Descargar .ino</button></div></div>
+      <pre><code id="code"></code></pre></div>
+    <div class="card"><h2>📖 El código explicado por bloques</h2>${e}
+      ${ediaSay("No necesitas memorizar el código. Necesitas saber <b>qué hace cada bloque</b>. Si el evaluador señala una línea, ubica en qué bloque está y explica ese bloque.")}</div>`;
+  },
+  defensa(p){
+    const d = p.defensa.map(x => `<li><b>${x[0]}</b><br><span class="muted">${x[1]}</span></li>`).join("");
+    const q = p.preguntas.map(x => `<details><summary>${x[0]}</summary><p>${x[1]}</p></details>`).join("");
+    const f = p.fallas.map(x => `<tr><td><b>${x[0]}</b></td><td>${x[1]}</td></tr>`).join("");
+    return `<div class="card"><h2>🎤 Defiende tu proyecto en 3 pasos</h2><ol class="defense">${d}</ol>
+      ${ediaSay("Si algo falla frente al evaluador, <b>no te pongas nervioso: diagnostica en voz alta</b>. “Voy a revisar primero la tierra, luego el pin…”. Saber buscar la falla vale tanto como que funcione a la primera.")}</div>
+    <div class="card qa"><h2>❓ Preguntas que te puede hacer el evaluador</h2>${q}</div>
+    <div class="card"><h2>🩺 Si algo no funciona</h2><div class="tablewrap"><table><thead><tr><th>Síntoma</th><th>Solución</th></tr></thead><tbody>${f}</tbody></table></div></div>`;
+  },
+  simulador(p){
+    return `<div class="card"><h2>🧪 Simulador del semáforo</h2>
+      <p class="muted">Mueve la barra como si acercaras la mano al sensor. Así ves qué debe pasar en el proyecto real (mismas reglas que el código).</p>
+      <div class="sim"><div>
+        <label for="dist"><b>Distancia: <span id="dv">60</span> cm</b></label>
+        <input type="range" id="dist" min="2" max="100" value="60">
+        <p>Umbral amarillo: <b>40 cm</b> · Umbral rojo: <b>15 cm</b></p>
+        <div class="serial" id="serial" aria-live="polite"></div>
+      </div>
+      <div class="lights" aria-hidden="true"><div class="light r" id="lr"></div><div class="light y" id="ly"></div><div class="light g" id="lg"></div></div></div>
+      ${ediaSay("El texto verde imita el <b>Monitor Serie</b> del Arduino IDE. En la prueba real, ábrelo: ver los números confirma que el sensor funciona aunque un LED esté mal puesto.")}</div>`;
+  },
+  checklist(p){
+    const done = store.get("edia-check-" + p.id, []);
+    const li = p.checklist.map((x,i) => `<li class="${done.includes(i)?"done":""}"><input type="checkbox" id="ck${i}" data-i="${i}" ${done.includes(i)?"checked":""}><label for="ck${i}">${x}</label></li>`).join("");
+    return `<div class="card"><h2>✅ Checklist del simulacro</h2>
+      <p class="muted">Inicia el cronómetro de arriba (${p.minutos} min) y marca cada paso. Tu progreso se guarda en este navegador.</p>
+      <div class="progress"><i id="bar"></i></div><p id="ptxt" class="muted"></p>
+      <ul class="check" id="check">${li}</ul>
+      <p><button id="ckReset">Reiniciar checklist</button> <button onclick="window.print()">Imprimir kit</button></p></div>`;
+  },
+};
+
+function renderPanel(){
+  const p = actual;
+  $("#panels").innerHTML = `<div class="panel">${PANELS[tab](p)}</div>`;
+  if (tab === "codigo") {
+    $("#code").textContent = p.codigo;
+    $("#copy").onclick = async (ev) => {
+      try { await navigator.clipboard.writeText(p.codigo); }
+      catch { const t = el("textarea",{value:p.codigo}); document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      ev.target.textContent = "¡Copiado! ✔"; setTimeout(() => ev.target.textContent = "Copiar código", 1800);
+    };
+    $("#dl").onclick = () => {
+      const a = el("a", {href: URL.createObjectURL(new Blob([p.codigo],{type:"text/plain"})), download:"semaforo_distancia.ino"});
+      a.click(); URL.revokeObjectURL(a.href);
+    };
+  }
+  if (tab === "simulador") {
+    const upd = () => {
+      const d = +$("#dist").value; $("#dv").textContent = d;
+      const est = d <= 15 ? "r" : d <= 40 ? "y" : "g";
+      ["r","y","g"].forEach(k => $("#l"+k).classList.toggle("on", k === est));
+      const msg = {r:"ROJO: demasiado cerca  (pitido ON)", y:"AMARILLO: te acercas", g:"VERDE: distancia correcta"}[est];
+      $("#serial").textContent = `Distancia: ${d.toFixed(2)} cm  ->  ${msg}`;
+    };
+    $("#dist").oninput = upd; upd();
+  }
+  if (tab === "checklist") {
+    const key = "edia-check-" + p.id;
+    const sync = () => {
+      const boxes = [...document.querySelectorAll("#check input")];
+      const done = boxes.filter(b => b.checked).map(b => +b.dataset.i);
+      boxes.forEach(b => b.parentElement.classList.toggle("done", b.checked));
+      store.set(key, done);
+      const pct = Math.round(done.length / boxes.length * 100);
+      $("#bar").style.width = pct + "%";
+      $("#ptxt").textContent = `${done.length} de ${boxes.length} pasos (${pct} %)` + (pct === 100 ? " — ¡Listo para la prueba! 🎉" : "");
+    };
+    $("#check").onchange = sync;
+    $("#ckReset").onclick = () => { document.querySelectorAll("#check input").forEach(b => b.checked = false); sync(); };
+    sync();
+  }
+}
+
+function render(){
+  $("#pTitle").textContent = actual.nombre;
+  $("#pSub").textContent = actual.sub;
+  renderProyectos(); renderTabs(); renderPanel();
+  resetTimer();
+}
+
+/* ================= cronómetro del simulacro ================= */
+let restante = 0, timerId = null;
+function pintar(){
+  const neg = restante < 0, a = Math.abs(restante);
+  $("#clock").textContent = (neg ? "-" : "") + String(Math.floor(a/60)).padStart(2,"0") + ":" + String(a%60).padStart(2,"0");
+  $("#clock").classList.toggle("late", restante <= 300);
+}
+function resetTimer(){ clearInterval(timerId); timerId = null; restante = (actual.minutos||45)*60; $("#tStart").textContent = "Iniciar simulacro"; pintar(); }
+$("#tStart").onclick = () => {
+  if (timerId) { clearInterval(timerId); timerId = null; $("#tStart").textContent = "Continuar"; return; }
+  $("#tStart").textContent = "Pausar";
+  timerId = setInterval(() => { restante--; pintar(); }, 1000);
+};
+$("#tReset").onclick = resetTimer;
+
+if (!TABS.some(t => t[0] === tab)) tab = "escenario";
+render();
+</script>
+</body>
+</html>
