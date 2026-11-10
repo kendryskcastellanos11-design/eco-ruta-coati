@@ -1684,6 +1684,7 @@ export default function EDIAInterviewCopilot() {
   const [preparing, setPreparing] = useState(false);
   const [toast, setToast] = useState("");
   const [sessionKey, setSessionKey] = useState(0);
+  const [confirmExit, setConfirmExit] = useState(false);
 
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 6000); return () => clearTimeout(t); }, [toast]);
 
@@ -1726,7 +1727,7 @@ export default function EDIAInterviewCopilot() {
   };
 
   const goHome = () => {
-    if (screen === "workspace" && !window.confirm("¿Salir de la simulación? Se perderá el progreso de esta sesión.")) return;
+    if (screen === "workspace") { setConfirmExit(true); return; }
     setScreen("landing");
   };
 
@@ -1752,6 +1753,19 @@ export default function EDIAInterviewCopilot() {
         )}
       </div>
 
+      {confirmExit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm fade-in">
+          <Glass className="w-full max-w-sm p-6 text-center">
+            <AlertTriangle size={28} className="mx-auto text-amber-400 mb-3" />
+            <div className="text-white font-bold">¿Salir de la simulación?</div>
+            <p className="text-sm text-slate-400 mt-2">Se perderá el progreso de esta sesión.</p>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setConfirmExit(false)} className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm hover:bg-slate-800">Seguir entrenando</button>
+              <button onClick={() => { setConfirmExit(false); setScreen("landing"); }} className="flex-1 py-2.5 rounded-xl bg-red-500/90 hover:bg-red-500 text-white text-sm font-semibold">Salir</button>
+            </div>
+          </Glass>
+        </div>
+      )}
       {showApi && <ApiModal api={api} onSave={connect} onClose={() => setShowApi(false)} />}
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl border border-amber-500/40 bg-slate-900/95 text-amber-200 text-sm shadow-2xl flex gap-2 fade-in">
