@@ -885,6 +885,13 @@ function arduinoPinsOf(project) {
   });
 }
 
+function assemblySteps(project) {
+  return [
+    ...project.prep.map((t) => ({ type: "prep", text: t })),
+    ...project.connections.map((cn, i) => ({ type: "conn", cn, i })),
+  ];
+}
+
 function connectionText(cn) {
   const [fp, fpin] = cn.from;
   const [tp, tpin] = cn.to;
@@ -930,7 +937,15 @@ async function copyText(text) {
   }
 }
 
-function downloadFile(name, content, type = "text/plain") {
+async function downloadFile(name, content, type = "text/plain") {
+  if (DOWNLOADS) {
+    try {
+      await DOWNLOADS.save({ filename: name.endsWith(".ino") ? `${name}.txt` : name, data: content });
+      return "saved";
+    } catch (e) {
+      return e && e.code === "declined" ? "declined" : "failed";
+    }
+  }
   try {
     const blob = new Blob([content], { type: `${type};charset=utf-8` });
     const url = URL.createObjectURL(blob);
@@ -941,7 +956,10 @@ function downloadFile(name, content, type = "text/plain") {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch { /* algunos entornos bloquean descargas */ }
+    return "saved";
+  } catch {
+    return "failed";
+  }
 }
 
 const UPLOAD_STEPS = [
@@ -959,6 +977,31 @@ const UPLOAD_STEPS = [
    MOTOR IA (Anthropic /v1/messages) + RESPALDO LOCAL
    ========================================================================= */
 
+/* Capacidades de la página publicada en claude.ai (si existen) */
+let SAMPLE = null;
+let DOWNLOADS = null;
+
+async function initCapabilities() {
+  const cl = typeof window !== "undefined" ? window.claude : undefined;
+  if (!cl || typeof cl.use !== "function") return { sample: null, tools: 0 };
+  try {
+    const [smp, dl] = await Promise.all([
+      cl.use("sample").catch(() => null),
+      cl.use("downloads").catch(() => null),
+    ]);
+    SAMPLE = typeof smp === "function" ? smp : null;
+    DOWNLOADS = dl || null;
+    let tools = 0;
+    if (SAMPLE) {
+      const lim = await SAMPLE.limits().catch(() => null);
+      tools = lim && lim.tools ? lim.tools.maxCount || 8 : 0;
+    }
+    return { sample: SAMPLE, tools };
+  } catch {
+    return { sample: null, tools: 0 };
+  }
+}
+
 function extractJSON(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -966,38 +1009,68 @@ function extractJSON(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-async function callLLM(api, system, user, maxTokens = 3000) {
+function errorText(err) {
+  if (!err) return "Error desconocido";
+  if (typeof err === "string") return err;
+  return err.message || err.code || "Error desconocido";
+}
+
+async function postMessages(api, body, signal) {
   const headers = { "Content-Type": "application/json" };
   if (api.key) {
     headers["x-api-key"] = api.key;
     headers["anthropic-version"] = "2023-06-01";
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), AI_TIMEOUT_MS) : null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onAbort);
+  }
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers,
-      signal: controller?.signal,
-      body: JSON.stringify({
-        model: api.model || DEFAULT_MODEL,
-        max_tokens: maxTokens,
-        messages: [{ role: "user", content: `${system}\n\n${user}` }],
-      }),
+      signal: controller.signal,
+      body: JSON.stringify({ model: api.model || DEFAULT_MODEL, ...body }),
     });
     if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 160)}`);
     const data = await res.json();
     if (data.stop_reason === "refusal") throw new Error("El modelo declinó la solicitud");
-    const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-    if (!text) throw new Error("Respuesta vacía de la IA");
-    return text;
+    return data;
   } catch (err) {
-    if (err.name === "AbortError") throw new Error("Tiempo de espera agotado");
+    if (err.name === "AbortError") {
+      if (signal && signal.aborted) throw { code: "cancelled", message: "Detenido" };
+      throw new Error("Tiempo de espera agotado");
+    }
     throw err;
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
   }
+}
+
+async function callLLM(api, system, user, maxTokens = 3000) {
+  const data = await postMessages(api, {
+    max_tokens: maxTokens,
+    messages: [{ role: "user", content: system ? `${system}\n\n${user}` : user }],
+  });
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  if (!text) throw new Error("Respuesta vacía de la IA");
+  return text;
+}
+
+/* Una sola puerta para pedir algo a la IA, sea cual sea el motor */
+async function callAI(api, prompt, { maxTokens = 3000, json = false } = {}) {
+  if (api.engine === "sample" && SAMPLE) {
+    if (json) return SAMPLE.json(prompt, { cache: false });
+    const { text } = await SAMPLE(prompt, { cache: false });
+    return text;
+  }
+  const text = await callLLM(api, "", prompt, maxTokens);
+  return json ? extractJSON(text) : text;
 }
 
 async function pingAI(api) {
@@ -1067,7 +1140,7 @@ Devuelve este JSON:
 "quiz":[{"q":"pregunta","options":["4 opciones"],"a":0,"why":"explicación"}],
 "challenges":["3 retos de ampliación"]}
 Incluye exactamente 4 preguntas en quiz, una conexión por cada cable y nunca omitas GND.`;
-  const out = extractJSON(await callLLM(api, system, user, 6000));
+  const out = await callAI(api, `${system}\n\n${user}`, { maxTokens: 6000, json: true });
   return sanitizeProject(out, level);
 }
 
@@ -1092,22 +1165,159 @@ function findClosestProject(idea, parts) {
   return best;
 }
 
-async function askSupportAI(api, { project, phase, history, message }) {
-  const system = "Eres el Soporte IA de EDIA Robótica: un profesor de robótica educativa paciente, claro y práctico. Respondes en español, con pasos numerados cuando ayuden, máximo 230 palabras. Si das código Arduino, que sea completo y compile en el Arduino UNO. Recuerda las normas de seguridad eléctrica. Responde solo con el texto para el estudiante.";
-  const convo = history.slice(-6).map((m) => `${m.role === "user" ? "Estudiante" : "Soporte EDIA"}: ${m.text}`).join("\n");
-  const user = `PROYECTO ACTUAL: ${project.title} (${project.level})
-Fase actual: ${phase}
-Materiales: ${project.components.map((m) => `${m.qty}x ${m.name}`).join(", ")}
-Conexiones: ${project.connections.map((cn) => `${cn.from[0]} ${cn.from[1]} -> ${cn.to[0]} ${cn.to[1]}${cn.via ? ` (via ${cn.via})` : ""}`).join("; ")}
-Código:
-${project.code.slice(0, 3500)}
+/* =========================================================================
+   AGENTE EDIA: tutor de IA que conversa y actúa dentro de la app
+   ========================================================================= */
 
-CONVERSACIÓN PREVIA
-${convo || "(ninguna)"}
+const AGENT_TOOL_SPECS = [
+  { name: "ver_estado", description: "Devuelve la pantalla actual, el proyecto abierto, la fase del taller y los pasos del montaje con su número y si están hechos. Úsala para saber dónde va el estudiante." },
+  { name: "ver_detalle_proyecto", description: "Devuelve materiales, conexiones numeradas (componente, pin, destino, color de cable, resistencia), librerías y código del proyecto abierto." },
+  { name: "resaltar_cable", description: "Lleva al estudiante a la fase Conexiones y resalta en el diagrama el cable con ese número (1 = primera fila de la tabla de pines).", inputSchema: { type: "object", properties: { numero: { type: "integer", minimum: 1 } }, required: ["numero"] } },
+  { name: "marcar_paso", description: "Marca o desmarca un paso del montaje como hecho. Úsala solo cuando el estudiante confirme que ya lo hizo. 'numero' es el número de paso que da ver_estado.", inputSchema: { type: "object", properties: { numero: { type: "integer", minimum: 1 }, hecho: { type: "boolean" } }, required: ["numero"] } },
+  { name: "ir_a_fase", description: "Cambia la fase del taller del proyecto abierto.", inputSchema: { type: "object", properties: { fase: { type: "string", enum: ["materiales", "conexiones", "codigo", "prueba"] } }, required: ["fase"] } },
+  { name: "abrir_proyecto", description: "Abre un proyecto de la biblioteca por su id y lleva al estudiante al taller. Ids: semaforo, pulsador, ldr, servo, distancia, alarma, clima, evasor.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+  { name: "listar_proyectos", description: "Devuelve los proyectos de la biblioteca con id, título, nivel y resumen." },
+  { name: "crear_proyecto", description: "Diseña con IA un proyecto nuevo para Arduino UNO a partir de la idea del estudiante y lo abre. Úsala cuando lo que quiere no está en la biblioteca. Tarda hasta un minuto.", inputSchema: { type: "object", properties: { idea: { type: "string" }, componentes: { type: "string" }, nivel: { type: "string", enum: LEVELS } }, required: ["idea"] } },
+];
 
-MENSAJE DEL ESTUDIANTE
-${message}`;
-  return callLLM(api, system, user, 1500);
+function agentRules(context, withTools) {
+  return `Eres "Agente EDIA", el tutor de robótica educativa de la app EDIA Robótica, que guía a niños y jóvenes a construir proyectos con Arduino UNO.
+Hablas en español, con frases cortas, amables y claras. Máximo 170 palabras por respuesta. Usa listas numeradas para pasos.
+${withTools ? `Puedes actuar dentro de la app con tus herramientas: ver el estado, ver el detalle del proyecto, resaltar cables en el diagrama, marcar pasos del montaje, cambiar de fase, abrir proyectos y crear proyectos nuevos.
+Reglas para usarlas:
+- Guía de a un paso por vez. Cuando expliques una conexión, resáltala con resaltar_cable.
+- Marca un paso como hecho solo cuando el estudiante diga que ya lo hizo; después indícale el siguiente.
+- Si no conoces las conexiones del proyecto abierto, consulta ver_detalle_proyecto antes de dar pines.
+- Si el estudiante quiere construir algo que no está en la biblioteca, usa crear_proyecto.` : "En esta vista no puedes usar herramientas: da instrucciones claras para que el estudiante las siga en la app."}
+- Nunca inventes pines: usa los del proyecto.
+- Recuerda la seguridad cuando toque: USB y pilas desconectados al cablear, LEDs con resistencia, motores siempre con driver y alimentación externa.
+
+ESTADO ACTUAL DE LA APP
+${context}`;
+}
+
+function toTurns(history) {
+  const turns = history
+    .filter((m) => m.text && m.text.trim())
+    .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text.slice(0, 4000) }));
+  while (turns.length && turns[0].role !== "user") turns.shift();
+  return turns.slice(-12);
+}
+
+async function runAgentAI({ api, history, context, impl, onText, signal }) {
+  let turns = toTurns(history);
+  while (turns.length && turns[0].role !== "user") turns = turns.slice(1);
+  if (!turns.length) throw new Error("Sin mensaje");
+
+  if (api.engine === "sample" && SAMPLE) {
+    const withTools = api.tools > 0;
+    const input = [{ role: "user", content: agentRules(context, withTools) }, ...turns];
+    const opts = { onText: ({ text }) => onText(text), signal };
+    if (withTools) {
+      opts.tools = AGENT_TOOL_SPECS.slice(0, api.tools).map((t) => ({
+        name: t.name,
+        description: t.description,
+        ...(t.inputSchema ? { inputSchema: t.inputSchema } : {}),
+        execute: (inp) => impl[t.name](inp || {}),
+      }));
+    } else {
+      opts.cache = false;
+    }
+    const { text } = await SAMPLE(input, opts);
+    return text;
+  }
+
+  const tools = AGENT_TOOL_SPECS.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema || { type: "object", properties: {} } }));
+  const messages = turns.map((t) => ({ role: t.role, content: t.content }));
+  messages[0] = { role: "user", content: `${agentRules(context, true)}\n\nMENSAJE DEL ESTUDIANTE:\n${messages[0].content}` };
+  let finalText = "";
+  for (let round = 0; round < 6; round++) {
+    const data = await postMessages(api, { max_tokens: 2000, tools, messages }, signal);
+    const blocks = data.content || [];
+    const text = blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (text) {
+      finalText = finalText ? `${finalText}\n\n${text}` : text;
+      onText(finalText);
+    }
+    if (data.stop_reason !== "tool_use") break;
+    messages.push({ role: "assistant", content: blocks });
+    const results = [];
+    for (const b of blocks.filter((x) => x.type === "tool_use")) {
+      let out;
+      let isError = false;
+      try {
+        if (!impl[b.name]) throw new Error(`Herramienta desconocida: ${b.name}`);
+        out = await impl[b.name](b.input || {});
+      } catch (e) {
+        out = `Error: ${errorText(e)}`;
+        isError = true;
+      }
+      results.push({ type: "tool_result", tool_use_id: b.id, content: typeof out === "string" ? out : JSON.stringify(out), ...(isError ? { is_error: true } : {}) });
+    }
+    messages.push({ role: "user", content: results });
+  }
+  if (!finalText) throw new Error("Respuesta vacía del agente");
+  return finalText;
+}
+
+/* Agente local (sin red): entiende intenciones básicas y usa las mismas herramientas */
+async function localAgent(text, impl, state) {
+  const m = normalize(text);
+  const note = "\n\n(Agente en modo local: conecta la IA para conversaciones libres.)";
+  const safe = async (fn) => { try { return await fn(); } catch (e) { return { error: errorText(e) }; } };
+
+  if (state.screen !== "workshop" || !state.project) {
+    const wantsBuild = /(abr|quiero|hacer|construir|crear|armar|empezar|proyecto|robot|carro|alarma|semaforo|luz|servo|sensor|temperatura)/.test(m);
+    if (/(recomien|cual empiezo|por donde empiezo|principiante|primer proyecto|para empezar)/.test(m)) {
+      await safe(() => impl.abrir_proyecto({ id: "semaforo" }));
+      return `Te recomiendo empezar por el "Semáforo con LEDs": es corto (30 min) y aprendes lo básico de salidas digitales. Ya te lo abrí.\n\nCuando tengas los materiales, escríbeme "guíame" y te llevo cable por cable.${note}`;
+    }
+    if (wantsBuild) {
+      const p = findClosestProject(text, "");
+      await safe(() => impl.abrir_proyecto({ id: p.id }));
+      return `Abrí el proyecto "${p.title}" (${p.level}, ${p.duration}). ${p.summary}\n\nRevisa los materiales y escríbeme "guíame" para conectar paso a paso.${note}`;
+    }
+    return `¡Hola! Soy el Agente EDIA. Puedo abrirte un proyecto y guiarte cable por cable. Prueba con:\n• "Recomiéndame un proyecto para empezar"\n• "Quiero hacer un robot"\n• "Abre la alarma con sensor de movimiento"${note}`;
+  }
+
+  const st = await safe(() => impl.ver_estado({}));
+  const steps = (st && st.pasos_montaje) || [];
+  const next = steps.find((x) => !x.hecho);
+
+  const describeNext = async (prefix = "") => {
+    const n = steps.find((x) => !x.hecho);
+    if (!n) {
+      await safe(() => impl.ir_a_fase({ fase: "codigo" }));
+      return `${prefix}¡Montaje completo! 🎉 Te llevé a la fase Código: copia el código, pégalo en el Arduino IDE y súbelo a la placa.`;
+    }
+    if (n.cable) await safe(() => impl.resaltar_cable({ numero: n.cable }));
+    else await safe(() => impl.ir_a_fase({ fase: "conexiones" }));
+    return `${prefix}Paso ${n.numero}: ${n.texto}${n.cable ? `\n\nLo resalté en el diagrama (cable ${n.cable}).` : ""}\n\nCuando lo tengas, escríbeme "listo".`;
+  };
+
+  if (/(listo|ya (lo )?(conecte|hice|puse)|hecho|termine|ya esta|ok ya)/.test(m) && !/siguiente paso|guiame/.test(m) && next) {
+    await safe(() => impl.marcar_paso({ numero: next.numero, hecho: true }));
+    steps.forEach((x) => { if (x.numero === next.numero) x.hecho = true; });
+    return (await describeNext(`¡Bien! Marqué el paso ${next.numero} como hecho.\n\n`)) + note;
+  }
+  if (/(guia|siguiente paso|que sigue|que hago|como conecto|conectar|conexion|cable|empez)/.test(m)) {
+    return (await describeNext()) + note;
+  }
+  if (/(codigo|programa|subir|cargar)/.test(m)) {
+    await safe(() => impl.ir_a_fase({ fase: "codigo" }));
+    return localSupport({ kind: "explain", message: text, project: state.project, phase: "Código" }) + note;
+  }
+  if (/(prueba|reto|quiz|cuestionario)/.test(m)) {
+    await safe(() => impl.ir_a_fase({ fase: "prueba" }));
+    return `Te llevé a la fase "Prueba y reto". Haz las pruebas de la lista y luego responde el reto final: necesitas 70% para completar el proyecto.${note}`;
+  }
+  if (/(no funciona|falla|error|no prende|no enciende|ayuda|problema)/.test(m)) {
+    return localSupport({ kind: "broken", message: text, project: state.project, phase: st && st.fase }) + note;
+  }
+  if (/(explica|que hace|para que sirve)/.test(m) && /(codigo|linea|funcion|setup|loop)/.test(m)) {
+    return localSupport({ kind: "explain", message: text, project: state.project, phase: st && st.fase }) + note;
+  }
+  return localSupport({ kind: "free", message: text, project: state.project, phase: (st && st.fase) || "" });
 }
 
 function localSupport({ kind, message, project, phase }) {
@@ -1211,7 +1421,7 @@ function ApiModal({ api, onSave, onClose }) {
         </div>
         <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Modelo</label>
         <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={DEFAULT_MODEL} className="w-full mt-2 mb-4 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500" />
-        <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">La clave solo vive en la memoria de esta pestaña. Sin conexión, EDIA usa su biblioteca de 8 proyectos probados y el soporte local.</p>
+        <p className="text-[11px] text-slate-500 mb-5 leading-relaxed">La clave solo vive en la memoria de esta pestaña. Sin conexión, EDIA usa su biblioteca de 8 proyectos probados y el Agente en modo local.</p>
         <div className="flex gap-2">
           <button onClick={() => { onSave({ key: "", model: model.trim() }); onClose(); }} className="flex-1 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm hover:bg-slate-800 flex items-center justify-center gap-1.5"><RotateCcw size={14} /> {key ? "Quitar clave" : "Reintentar"}</button>
           <button onClick={() => { onSave({ key: key.trim(), model: model.trim() }); onClose(); }} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white text-sm font-semibold">Guardar y conectar</button>
@@ -1392,20 +1602,20 @@ function WiringDiagram({ project, highlightIdx, onHover }) {
 function Landing({ onStart }) {
   const steps = [
     { icon: Layers, title: "1. Elige o crea tu proyecto", text: "8 proyectos probados, de principiante a avanzado, o describe tu idea y la IA lo diseña para ti.", color: "from-cyan-500 to-cyan-400" },
-    { icon: Cable, title: "2. Conecta paso a paso", text: "Diagrama de cableado, tabla de pines y una lista guiada que no te deja avanzar hasta conectar todo.", color: "from-indigo-500 to-indigo-400" },
+    { icon: Bot, title: "2. Conecta con el Agente IA", text: "El Agente EDIA te guía cable por cable, resalta cada conexión en el diagrama y marca tu avance.", color: "from-indigo-500 to-indigo-400" },
     { icon: Usb, title: "3. Carga el código y supera el reto", text: "Copia el código para tu Arduino UNO, súbelo, pruébalo y aprueba el reto final con 70% o más.", color: "from-emerald-500 to-emerald-400" },
   ];
   return (
     <main className="max-w-6xl mx-auto px-4 py-12 sm:py-20 fade-in">
       <div className="text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-xs font-medium mb-8">
-          <Sparkles size={14} /> Robótica educativa · Arduino UNO · Soporte IA 24/7
+          <Sparkles size={14} /> Robótica educativa · Arduino UNO · Agente IA
         </div>
         <div className="flex justify-center mb-6"><Logo size="lg" /></div>
         <h1 className="text-3xl sm:text-5xl font-black text-white leading-tight tracking-tight">
           Tu copiloto para construir <span className="bg-gradient-to-r from-cyan-400 via-indigo-400 to-emerald-400 bg-clip-text text-transparent">proyectos de robótica con Arduino</span>
         </h1>
-        <p className="mt-5 text-slate-400 text-base sm:text-lg">Te dice qué materiales usar, cómo conectar cada cable, te da el código listo para cargar en tu placa y te acompaña hasta que funcione.</p>
+        <p className="mt-5 text-slate-400 text-base sm:text-lg">Te dice qué materiales usar, cómo conectar cada cable y te da el código listo para cargar en tu placa. Y el Agente EDIA te acompaña paso a paso hasta que funcione.</p>
         <button onClick={onStart} className="group mt-10 inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 text-white font-bold text-lg shadow-2xl shadow-cyan-500/30 hover:scale-[1.03] transition-all glow">
           <Rocket size={22} /> Comenzar a construir <ChevronRight size={20} className="group-hover:translate-x-1 transition" />
         </button>
@@ -1540,7 +1750,7 @@ function PhaseMaterials({ project, have, setHave, onNext }) {
 }
 
 function PhaseConnections({ project, done, setDone, onNext, highlight, setHighlight }) {
-  const items = [...project.prep.map((t) => ({ type: "prep", text: t })), ...project.connections.map((cn, i) => ({ type: "conn", cn, i }))];
+  const items = assemblySteps(project);
   const total = items.length;
   const count = items.filter((_, k) => done[k]).length;
   const all = count === total;
@@ -1812,70 +2022,72 @@ const PHASE_TIPS = {
   },
 };
 
-function SupportPanel({ messages, loading, onAsk, api }) {
+function AgentPanel({ agent, api, quick }) {
+  const { messages, busy, send, stop } = agent;
   const [input, setInput] = useState("");
   const endRef = useRef(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
-  const quick = [
-    ["connect", "¿Cómo conecto esto?", Cable],
-    ["explain", "Explícame el código", Code2],
-    ["broken", "No funciona, ayúdame", Wrench],
-  ];
-  const send = () => { if (!input.trim() || loading) return; onAsk("free", input); setInput(""); };
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
+  const submit = (t) => { const v = (t ?? input).trim(); if (!v || busy) return; send(v); if (t === undefined) setInput(""); };
+  const engineLabel = api.status === "online" ? (api.engine === "sample" ? `Agente IA conectado${api.tools ? " · puede actuar en la app" : ""}` : "Agente IA conectado · puede actuar en la app") : api.status === "checking" ? "Conectando al agente..." : "Agente en modo local";
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="px-4 pt-3 pb-2 text-[11px] text-slate-500 border-b border-slate-800/60 flex items-center gap-1.5">
         <span className={`w-1.5 h-1.5 rounded-full ${api.status === "online" ? "bg-emerald-400" : api.status === "checking" ? "bg-cyan-400" : "bg-amber-400"}`} />
-        {api.status === "online" ? "Soporte IA conectado · 24/7" : api.status === "checking" ? "Conectando con la IA..." : "Soporte con Motor de Respaldo Local"}
+        {engineLabel}
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[280px]">
         {messages.map((m, i) => {
           const mine = m.role === "user";
           return (
             <div key={i} className={`flex gap-2 msg-in ${mine ? "flex-row-reverse" : ""}`}>
-              <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center ${mine ? "bg-slate-700" : "bg-gradient-to-br from-emerald-500 to-cyan-500"}`}>{mine ? <User size={14} className="text-slate-200" /> : <LifeBuoy size={14} className="text-white" />}</div>
-              <div className={`max-w-[88%] min-w-0 rounded-2xl px-3 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${mine ? "bg-cyan-500/15 border border-cyan-500/30 text-slate-100 rounded-tr-sm" : "bg-slate-800/70 border border-slate-700/60 text-slate-200 rounded-tl-sm"}`}>{m.text}</div>
+              <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center ${mine ? "bg-slate-700" : "bg-gradient-to-br from-indigo-500 to-cyan-500"}`}>{mine ? <User size={14} className="text-slate-200" /> : <Bot size={14} className="text-white" />}</div>
+              <div className="max-w-[88%] min-w-0 flex flex-col gap-1.5">
+                {!mine && m.actions && m.actions.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {m.actions.map((a, j) => <span key={j} className="text-[10.5px] px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 flex items-center gap-1"><Zap size={10} /> {a}</span>)}
+                  </div>
+                )}
+                <div className={`rounded-2xl px-3 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${mine ? "bg-cyan-500/15 border border-cyan-500/30 text-slate-100 rounded-tr-sm" : "bg-slate-800/70 border border-slate-700/60 text-slate-200 rounded-tl-sm"}`}>
+                  {m.text || (m.pending ? <span className="flex items-center gap-2 text-slate-400"><Loader2 size={13} className="animate-spin text-cyan-300" /> El agente está pensando...</span> : "")}
+                </div>
+              </div>
             </div>
           );
         })}
-        {loading && (
-          <div className="flex gap-2 msg-in">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center"><LifeBuoy size={14} className="text-white" /></div>
-            <div className="rounded-2xl px-3 py-2.5 bg-slate-800/70 border border-slate-700/60 text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-cyan-300" /> EDIA está pensando...</div>
-          </div>
-        )}
         <div ref={endRef} />
       </div>
       <div className="p-3 border-t border-slate-800/80 bg-slate-950/50">
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {quick.map(([k, l, Icon]) => (
-            <button key={k} disabled={loading} onClick={() => onAsk(k)} className="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40 transition"><Icon size={12} /> {l}</button>
+          {quick.map((q) => (
+            <button key={q} disabled={busy} onClick={() => submit(q)} className="text-[11px] px-2.5 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40 transition">{q}</button>
           ))}
         </div>
         <div className="flex gap-2 items-end">
-          <label htmlFor="support-input" className="sr-only">Pregunta al copiloto</label>
-          <textarea id="support-input" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} rows={2} placeholder="Pregunta lo que quieras... (Enter para enviar)" className="flex-1 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-[13px] text-white placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/60" />
-          <button onClick={send} disabled={!input.trim() || loading} className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white disabled:opacity-30"><Send size={16} /></button>
+          <label htmlFor="agent-input" className="sr-only">Escribe al Agente EDIA</label>
+          <textarea id="agent-input" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} rows={2} placeholder="Escribe al Agente EDIA... (Enter para enviar)" className="flex-1 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2 text-[13px] text-white placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/60" />
+          {busy ? (
+            <button onClick={stop} title="Detener" className="p-2.5 rounded-xl bg-red-500/80 hover:bg-red-500 text-white"><X size={16} /></button>
+          ) : (
+            <button onClick={() => submit()} disabled={!input.trim()} className="p-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white disabled:opacity-30"><Send size={16} /></button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
+function Workshop({ project, api, agent, bridgeRef, onBack, onFinish }) {
   const [phase, setPhase] = useState(0);
   const [maxPhase, setMaxPhase] = useState(0);
   const [have, setHave] = useState({});
   const [done, setDone] = useState({});
   const [tests, setTests] = useState({});
-  const [highlight, setHighlight] = useState(null);
+  const [hover, setHover] = useState(null);
+  const [agentHi, setAgentHi] = useState(null);
   const [tab, setTab] = useState("guide");
   const [startedAt] = useState(Date.now());
-  const [supportMsgs, setSupportMsgs] = useState(() => [
-    { role: "assistant", text: `¡Hola! Soy el Soporte IA de EDIA. Te acompaño en "${project.title}". Pregúntame lo que necesites: cómo conectar un componente, qué hace una línea del código o por qué algo no funciona.` },
-  ]);
-  const [supportLoading, setSupportLoading] = useState(false);
   const contentRef = useRef(null);
+  const steps = useMemo(() => assemblySteps(project), [project]);
 
   const go = (i) => {
     setPhase(i);
@@ -1883,37 +2095,28 @@ function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
     contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const askSupport = async (kind, raw) => {
-    if (supportLoading) return;
-    const labels = { connect: "¿Cómo conecto esto?", explain: "Explícame el código", broken: "No funciona, ayúdame" };
-    const userText = kind === "free" ? raw.trim() : labels[kind];
-    if (!userText) return;
-    const history = supportMsgs;
-    setSupportMsgs((m) => [...m, { role: "user", text: userText }]);
-    setSupportLoading(true);
-    const aiMsg = {
-      connect: "Explícame paso a paso cómo conectar todos los componentes de este proyecto al Arduino UNO, en orden, indicando colores de cable y precauciones.",
-      explain: "Explícame el código de este proyecto como a un estudiante, bloque por bloque.",
-      broken: "Mi proyecto no funciona. Dame una lista ordenada de comprobaciones (conexiones, código, IDE, alimentación) para encontrar el fallo.",
-      free: userText,
-    }[kind];
-    let reply;
-    const started = Date.now();
-    try {
-      if (api.status === "offline") throw new Error("local");
-      reply = await askSupportAI(api, { project, phase: PHASES[phase].label, history, message: aiMsg });
-    } catch (err) {
-      if (err.message !== "local") setApiFailed(err.message);
-      reply = localSupport({ kind, message: userText, project, phase: PHASES[phase].label });
-    }
-    const wait = 600 - (Date.now() - started);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    setSupportMsgs((m) => [...m, { role: "assistant", text: reply }]);
-    setSupportLoading(false);
+  /* Puente para que el Agente EDIA lea y cambie el taller */
+  bridgeRef.current = {
+    projectId: project.id,
+    getState: () => ({
+      fase: PHASES[phase].label,
+      pasos_montaje: steps.map((it, k) => ({
+        numero: k + 1,
+        ...(it.type === "conn" ? { cable: it.i + 1 } : {}),
+        texto: it.type === "prep" ? it.text : connectionText(it.cn),
+        hecho: !!done[k],
+      })),
+      pruebas: `${project.tests.filter((_, i) => tests[i]).length} de ${project.tests.length} hechas`,
+    }),
+    go: (i) => go(i),
+    setStep: (k, val) => setDone((d) => ({ ...d, [k]: val })),
+    highlight: (i) => { setAgentHi(i); if (phase !== 1) go(1); else contentRef.current?.scrollTo({ top: 0, behavior: "smooth" }); },
+    openAgent: () => setTab("agent"),
   };
 
   const tips = PHASE_TIPS[PHASES[phase].id];
   const Icon = ICONS[project.icon] || Cpu;
+  const quick = ["Guíame en el siguiente paso", "Explícame el código", "No funciona, ayúdame"];
 
   return (
     <div className="flex flex-col h-screen fade-in">
@@ -1928,7 +2131,7 @@ function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
               <div className="text-[11px] text-slate-500">Fase {phase + 1} de 4 · {PHASES[phase].label}</div>
             </div>
           </div>
-          <button onClick={() => setTab("support")} className="hidden sm:block"><StatusPill api={api} compact /></button>
+          <button onClick={() => setTab("agent")} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-200 text-xs sm:text-sm font-semibold whitespace-nowrap"><Bot size={15} /> <span className="hidden sm:inline">Agente IA</span></button>
           <button onClick={() => onFinish(null, 0, Date.now() - startedAt)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-white font-medium whitespace-nowrap"><ListChecks size={15} /> <span className="hidden sm:inline">Guía completa</span></button>
         </div>
       </header>
@@ -1941,7 +2144,7 @@ function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
               const reachable = i <= maxPhase;
               return (
                 <button key={p.id} disabled={!reachable} onClick={() => go(i)} className={`flex-1 min-w-[96px] flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl text-xs sm:text-sm font-semibold transition ${phase === i ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/30" : reachable ? "text-slate-400 hover:text-slate-200 border border-transparent" : "text-slate-700 border border-transparent cursor-not-allowed"}`}>
-                  {i < maxPhase || (i === maxPhase && i < phase) ? <CheckCircle2 size={15} className="text-emerald-400" /> : reachable ? <PI size={15} /> : <Lock size={13} />}
+                  {i < maxPhase ? <CheckCircle2 size={15} className="text-emerald-400" /> : reachable ? <PI size={15} /> : <Lock size={13} />}
                   <span>{p.label}</span>
                 </button>
               );
@@ -1949,23 +2152,23 @@ function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
           </div>
           <div ref={contentRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
             {phase === 0 && <PhaseMaterials project={project} have={have} setHave={setHave} onNext={() => go(1)} />}
-            {phase === 1 && <PhaseConnections project={project} done={done} setDone={setDone} onNext={() => go(2)} highlight={highlight} setHighlight={setHighlight} />}
+            {phase === 1 && <PhaseConnections project={project} done={done} setDone={setDone} onNext={() => go(2)} highlight={hover ?? agentHi} setHighlight={setHover} />}
             {phase === 2 && <PhaseCode project={project} onNext={() => go(3)} />}
             {phase === 3 && <PhaseTest project={project} tests={tests} setTests={setTests} onComplete={(score, attempts) => onFinish(score, attempts, Date.now() - startedAt)} />}
           </div>
         </section>
 
-        <aside className="lg:w-2/5 flex flex-col min-h-[60vh] lg:min-h-0 bg-slate-900/30">
+        <aside className="lg:w-2/5 flex flex-col min-h-[70vh] lg:min-h-0 bg-slate-900/30">
           <div className="flex p-2 gap-1 border-b border-slate-800/60">
-            {[["guide", "Guía del paso", BookOpen], ["support", "Soporte IA (Chat)", LifeBuoy]].map(([k, l, TI]) => (
+            {[["guide", "Guía del paso", BookOpen], ["agent", "Agente IA", Bot]].map(([k, l, TI]) => (
               <button key={k} onClick={() => setTab(k)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition ${tab === k ? "bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-white border border-cyan-500/30" : "text-slate-500 hover:text-slate-300 border border-transparent"}`}>
                 <TI size={15} /> {l}
-                {k === "support" && supportLoading && <Loader2 size={12} className="animate-spin text-cyan-300" />}
+                {k === "agent" && agent.busy && <Loader2 size={12} className="animate-spin text-cyan-300" />}
               </button>
             ))}
           </div>
-          {tab === "support" ? (
-            <SupportPanel messages={supportMsgs} loading={supportLoading} onAsk={askSupport} api={api} />
+          {tab === "agent" ? (
+            <AgentPanel agent={agent} api={api} quick={quick} />
           ) : (
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 fade-in">
               <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-500/10 to-indigo-500/10 border border-cyan-500/20">
@@ -1987,7 +2190,7 @@ function Workshop({ project, api, onBack, onFinish, setApiFailed }) {
               {project.ai && (
                 <div className="p-3 rounded-xl border border-indigo-500/30 bg-indigo-500/5 text-xs text-indigo-200 flex gap-2"><Sparkles size={14} className="shrink-0 mt-0.5" /> Proyecto diseñado por la IA: revisa las conexiones con calma antes de energizar el circuito.</div>
               )}
-              <button onClick={() => setTab("support")} className="w-full py-3 rounded-xl border border-cyan-500/30 bg-cyan-500/5 text-cyan-200 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-cyan-500/10"><HelpCircle size={16} /> ¿Tienes una duda? Pregunta al Soporte IA</button>
+              <button onClick={() => setTab("agent")} className="w-full py-3 rounded-xl border border-indigo-500/40 bg-indigo-500/10 text-indigo-200 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-indigo-500/15"><Bot size={16} /> Que el Agente IA me guíe paso a paso</button>
             </div>
           )}
         </aside>
@@ -2078,55 +2281,206 @@ const STYLES = `
 ::-webkit-scrollbar { width: 8px; height: 8px } ::-webkit-scrollbar-thumb { background: rgb(51 65 85); border-radius: 8px } ::-webkit-scrollbar-track { background: transparent }
 `;
 
+const AGENT_GREETING = "¡Hola! Soy el Agente EDIA, tu tutor de robótica. Puedo recomendarte un proyecto, abrirlo, guiarte cable por cable resaltando cada conexión en el diagrama, explicarte el código y ayudarte si algo no funciona. ¿Qué quieres construir hoy?";
+
 export default function EDIARoboticaCopilot() {
   const [screen, setScreen] = useState("landing");
-  const [api, setApi] = useState({ key: "", model: "", status: "checking", error: "" });
+  const [api, setApi] = useState({ key: "", model: "", engine: "fetch", tools: 0, status: "checking", error: "" });
   const [showApi, setShowApi] = useState(false);
   const [project, setProject] = useState(null);
   const [result, setResult] = useState({ score: null, attempts: 0, elapsed: 0 });
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState("");
   const [workshopKey, setWorkshopKey] = useState(0);
+  const [agentMsgs, setAgentMsgs] = useState([{ role: "assistant", text: AGENT_GREETING }]);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
+
+  const bridgeRef = useRef(null);
+  const abortRef = useRef(null);
+  const actionSinkRef = useRef(null);
+  const live = useRef({});
+  live.current = { screen, project, api, agentMsgs };
 
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 6500); return () => clearTimeout(t); }, [toast]);
 
   const connect = useCallback(async (conf) => {
-    setApi({ key: conf.key, model: conf.model, status: "checking", error: "" });
+    if (!conf.key && SAMPLE) {
+      const lim = await SAMPLE.limits().catch(() => null);
+      setApi({ key: "", model: conf.model || "", engine: "sample", tools: lim && lim.tools ? lim.tools.maxCount || 8 : 0, status: "online", error: "" });
+      return;
+    }
+    setApi({ key: conf.key, model: conf.model, engine: "fetch", tools: 8, status: "checking", error: "" });
     try {
       const ok = await pingAI(conf);
-      setApi({ key: conf.key, model: conf.model, status: ok ? "online" : "offline", error: ok ? "" : "Respuesta inesperada" });
+      setApi({ key: conf.key, model: conf.model, engine: "fetch", tools: 8, status: ok ? "online" : "offline", error: ok ? "" : "Respuesta inesperada" });
     } catch (err) {
-      setApi({ key: conf.key, model: conf.model, status: "offline", error: err.message || "Sin conexión" });
+      setApi({ key: conf.key, model: conf.model, engine: "fetch", tools: 8, status: "offline", error: errorText(err) || "Sin conexión" });
     }
   }, []);
 
-  useEffect(() => { connect({ key: "", model: "" }); }, [connect]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const caps = await initCapabilities();
+      if (!alive) return;
+      if (caps.sample) setApi({ key: "", model: "", engine: "sample", tools: caps.tools, status: "online", error: "" });
+      else connect({ key: "", model: "" });
+    })();
+    return () => { alive = false; };
+  }, [connect]);
 
-  const apiFailed = useCallback((msg) => {
+  const apiFailed = useCallback((err) => {
+    const code = err && err.code;
+    if (code === "rate_limited") { setToast("Hiciste muchas consultas seguidas a la IA. Espera un momento y vuelve a intentarlo."); return; }
+    if (code === "cancelled") return;
+    const msg = code === "not_granted" ? "no se dio permiso para usar Claude en esta página" : errorText(err);
     setApi((a) => ({ ...a, status: "offline", error: msg }));
-    setToast(`La IA no respondió (${(msg || "").slice(0, 80)}). EDIA activó el Modo Respaldo Local.`);
+    setToast(`La IA no está disponible (${msg.slice(0, 80)}). EDIA activó el Modo Respaldo Local.`);
   }, []);
 
-  const openProject = (p) => {
+  const openProject = useCallback((p) => {
+    bridgeRef.current = null;
     setProject(p);
     setWorkshopKey((k) => k + 1);
     setScreen("workshop");
+    setAgentOpen(false);
+  }, []);
+
+  const createProject = useCallback(async (req) => {
+    setCreating(true);
+    let p;
+    try {
+      if (live.current.api.status === "offline") throw { code: "local" };
+      p = await generateProjectAI(live.current.api, req);
+    } catch (err) {
+      if (!err || err.code !== "local") apiFailed(err);
+      p = findClosestProject(req.idea, req.parts || "");
+      setToast(`Sin IA disponible: te propongo el proyecto más parecido de la biblioteca, "${p.title}".`);
+    }
+    openProject(p);
+    setCreating(false);
+    return p;
+  }, [apiFailed, openProject]);
+
+  /* Herramientas que el Agente EDIA puede usar dentro de la app */
+  const logAction = (label) => { if (actionSinkRef.current) actionSinkRef.current(label); };
+  const needWorkshop = () => {
+    const w = bridgeRef.current;
+    if (live.current.screen !== "workshop" || !w) throw new Error("No hay ningún proyecto abierto. Usa abrir_proyecto primero.");
+    return w;
+  };
+  const impl = {
+    ver_estado: () => {
+      const { screen: sc, project: pr } = live.current;
+      const base = { pantalla: { landing: "inicio", catalog: "catálogo de proyectos", workshop: "taller del proyecto", summary: "resumen final" }[sc] || sc, proyecto: pr ? { id: pr.id, titulo: pr.title, nivel: pr.level } : null };
+      if (sc === "workshop" && bridgeRef.current) return { ...base, ...bridgeRef.current.getState() };
+      return base;
+    },
+    ver_detalle_proyecto: () => {
+      const pr = live.current.project;
+      if (!pr) throw new Error("No hay ningún proyecto abierto.");
+      return {
+        titulo: pr.title,
+        materiales: pr.components.map((m) => `${m.qty}x ${m.name}${m.note ? ` (${m.note})` : ""}`),
+        conexiones: pr.connections.map((cn, i) => ({ numero: i + 1, componente: cn.from[0], pin: cn.from[1], va_a: cn.to[0] === "Arduino" ? `Arduino ${cn.to[1]}` : `${cn.to[0]} ${cn.to[1]}`, cable: cn.color, resistencia: cn.via || undefined, nota: cn.note || undefined })),
+        librerias: pr.libraries,
+        codigo: pr.code.slice(0, 6000),
+      };
+    },
+    resaltar_cable: ({ numero }) => {
+      const w = needWorkshop();
+      const n = Number(numero);
+      const pr = live.current.project;
+      if (!(n >= 1 && n <= pr.connections.length)) throw new Error(`El proyecto tiene ${pr.connections.length} cables.`);
+      w.highlight(n - 1);
+      logAction(`Resaltó el cable ${n}`);
+      return { ok: true, cable: connectionText(pr.connections[n - 1]) };
+    },
+    marcar_paso: ({ numero, hecho }) => {
+      const w = needWorkshop();
+      const n = Number(numero);
+      const total = assemblySteps(live.current.project).length;
+      if (!(n >= 1 && n <= total)) throw new Error(`El montaje tiene ${total} pasos.`);
+      const val = hecho === undefined ? true : Boolean(hecho);
+      w.setStep(n - 1, val);
+      logAction(`${val ? "Marcó" : "Desmarcó"} el paso ${n}`);
+      return { ok: true };
+    },
+    ir_a_fase: ({ fase }) => {
+      const w = needWorkshop();
+      const idx = PHASES.findIndex((ph) => ph.id === normalize(String(fase)));
+      if (idx === -1) throw new Error("Fase no válida: usa materiales, conexiones, codigo o prueba.");
+      w.go(idx);
+      logAction(`Fue a la fase ${PHASES[idx].label}`);
+      return { ok: true, fase: PHASES[idx].label };
+    },
+    abrir_proyecto: ({ id }) => {
+      const p = PROJECTS.find((x) => x.id === normalize(String(id)));
+      if (!p) throw new Error("Id no encontrado. Usa listar_proyectos.");
+      openProject(p);
+      logAction(`Abrió "${p.title}"`);
+      return { ok: true, titulo: p.title, nivel: p.level, materiales: p.components.length, cables: p.connections.length };
+    },
+    listar_proyectos: () => PROJECTS.map((p) => ({ id: p.id, titulo: p.title, nivel: p.level, duracion: p.duration, resumen: p.summary })),
+    crear_proyecto: async ({ idea, componentes, nivel }) => {
+      logAction("Diseñando un proyecto nuevo...");
+      const p = await createProject({ idea: String(idea || ""), parts: String(componentes || ""), level: LEVELS.includes(nivel) ? nivel : "Principiante" });
+      logAction(`Abrió "${p.title}"`);
+      return { ok: true, titulo: p.title, generado_por_ia: !!p.ai, cables: p.connections.length };
+    },
+  };
+  const implRef = useRef(impl);
+  implRef.current = impl;
+
+  const agentContext = () => {
+    const st = implRef.current.ver_estado();
+    const lines = [`Pantalla: ${st.pantalla}.`];
+    if (st.proyecto) lines.push(`Proyecto abierto: ${st.proyecto.titulo} (id ${st.proyecto.id}, ${st.proyecto.nivel}).`);
+    if (st.fase) lines.push(`Fase del taller: ${st.fase}.`);
+    if (st.pasos_montaje) {
+      const next = st.pasos_montaje.find((x) => !x.hecho);
+      lines.push(`Montaje: ${st.pasos_montaje.filter((x) => x.hecho).length} de ${st.pasos_montaje.length} pasos hechos.${next ? ` Siguiente paso pendiente: ${next.numero}${next.cable ? ` (cable ${next.cable})` : ""}: ${next.texto}` : ""}`);
+    }
+    if (!st.proyecto) lines.push(`Proyectos de la biblioteca: ${PROJECTS.map((p) => `${p.id} (${p.title}, ${p.level})`).join("; ")}.`);
+    return lines.join("\n");
   };
 
-  const createProject = async (req) => {
-    setCreating(true);
+  const sendToAgent = useCallback(async (text) => {
+    if (agentBusy) return;
+    const history = [...live.current.agentMsgs, { role: "user", text }];
+    setAgentMsgs([...history, { role: "assistant", text: "", actions: [], pending: true }]);
+    setAgentBusy(true);
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    const patchLast = (fn) => setAgentMsgs((ms) => {
+      const copy = ms.slice();
+      copy[copy.length - 1] = { ...copy[copy.length - 1], ...fn(copy[copy.length - 1]) };
+      return copy;
+    });
+    actionSinkRef.current = (label) => patchLast((m) => ({ actions: [...(m.actions || []), label] }));
     try {
-      if (api.status === "offline") throw new Error("local");
-      const p = await generateProjectAI(api, req);
-      openProject(p);
+      const a = live.current.api;
+      if (a.status !== "online") throw { code: "local" };
+      const reply = await runAgentAI({ api: a, history, context: agentContext(), impl: implRef.current, onText: (t) => patchLast(() => ({ text: t })), signal: ctl.signal });
+      patchLast(() => ({ text: reply, pending: false }));
     } catch (err) {
-      if (err.message !== "local") apiFailed(err.message);
-      const p = findClosestProject(req.idea, req.parts);
-      setToast(`Sin IA disponible: te propongo el proyecto más parecido de la biblioteca, "${p.title}".`);
-      openProject(p);
+      if (ctl.signal.aborted || (err && err.code === "cancelled")) {
+        patchLast((m) => ({ text: m.text ? `${m.text}\n\n(Detenido)` : "Detenido.", pending: false }));
+      } else {
+        if (!err || err.code !== "local") apiFailed(err);
+        const reply = await localAgent(text, implRef.current, { screen: live.current.screen, project: live.current.project });
+        patchLast(() => ({ text: reply, pending: false }));
+      }
+    } finally {
+      actionSinkRef.current = null;
+      abortRef.current = null;
+      setAgentBusy(false);
     }
-    setCreating(false);
-  };
+  }, [agentBusy, apiFailed]);
+
+  const agent = { messages: agentMsgs, busy: agentBusy, send: sendToAgent, stop: () => abortRef.current && abortRef.current.abort() };
+  const outsideQuick = ["Recomiéndame un proyecto para empezar", "Quiero hacer un robot", "¿Qué necesito para empezar con Arduino?"];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans relative overflow-x-hidden">
@@ -2143,12 +2497,27 @@ export default function EDIARoboticaCopilot() {
         {screen === "landing" && <Landing onStart={() => setScreen("catalog")} />}
         {screen === "catalog" && <Catalog onBack={() => setScreen("landing")} onOpen={openProject} onCreate={createProject} creating={creating} />}
         {screen === "workshop" && project && (
-          <Workshop key={workshopKey} project={project} api={api} setApiFailed={apiFailed} onBack={() => setScreen("catalog")} onFinish={(score, attempts, elapsed) => { setResult({ score, attempts, elapsed }); setScreen("summary"); }} />
+          <Workshop key={workshopKey} project={project} api={api} agent={agent} bridgeRef={bridgeRef} onBack={() => setScreen("catalog")} onFinish={(score, attempts, elapsed) => { setResult({ score, attempts, elapsed }); setScreen("summary"); }} />
         )}
         {screen === "summary" && project && (
           <Summary project={project} result={result} onCatalog={() => setScreen("catalog")} onHome={() => setScreen("landing")} onReopen={() => openProject(project)} />
         )}
       </div>
+
+      {screen !== "workshop" && !agentOpen && (
+        <button onClick={() => setAgentOpen(true)} className="fixed z-40 flex items-center gap-2 pl-3 pr-4 py-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-cyan-500 text-white font-bold shadow-2xl shadow-indigo-500/30 glow" style={{ right: "calc(20px + env(safe-area-inset-right, 0px))", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}>
+          <Bot size={20} /> Agente EDIA
+        </button>
+      )}
+      {screen !== "workshop" && agentOpen && (
+        <div className="fixed inset-y-0 right-0 z-40 w-full sm:w-[420px] flex flex-col bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 shadow-2xl fade-in" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="h-14 px-4 flex items-center justify-between border-b border-slate-800">
+            <div className="flex items-center gap-2 text-white font-bold"><Bot size={18} className="text-indigo-300" /> Agente EDIA</div>
+            <button onClick={() => setAgentOpen(false)} title="Cerrar" className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X size={18} /></button>
+          </div>
+          <AgentPanel agent={agent} api={api} quick={outsideQuick} />
+        </div>
+      )}
 
       {showApi && <ApiModal api={api} onSave={connect} onClose={() => setShowApi(false)} />}
       {toast && (

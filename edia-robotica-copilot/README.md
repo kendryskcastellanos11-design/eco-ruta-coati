@@ -16,4 +16,11 @@ Aplicación React de un solo archivo (`EDIARoboticaCopilot.jsx`) que guía proye
 5. **Prueba y reto:** pruebas, solución de problemas y cuestionario: con menos del 70% hay que repasar y reintentar.
 6. **Resumen:** guía completa copiable o descargable en Markdown.
 
-Panel lateral con **Guía del paso** (consejos y seguridad) y **Soporte IA (Chat)** con 3 consultas rápidas. Sin conexión, todo funciona con la biblioteca local y el soporte de respaldo.
+## Agente EDIA
+
+Un tutor de IA que conversa con el estudiante y **actúa dentro de la app** con herramientas: ver el estado, ver el detalle del proyecto, resaltar un cable en el diagrama, marcar pasos del montaje, cambiar de fase, abrir proyectos de la biblioteca y crear proyectos nuevos con IA. Está en el panel lateral del taller (pestaña "Agente IA") y en un botón flotante en el inicio y el catálogo.
+
+Motores, en este orden:
+1. **Página publicada en claude.ai:** capacidad `sample` (usa la cuenta de Claude de quien abre la página; la primera consulta pide permiso) con las herramientas de la página.
+2. **Artifact de chat o código exportado:** API de Anthropic `/v1/messages` con `tools` y un bucle de herramientas propio (`claude-sonnet-4-20250514`, API Key opcional fuera de Claude).
+3. **Sin conexión:** agente local que entiende intenciones básicas ("guíame", "listo", "abre la alarma", "no funciona") y usa las mismas herramientas.
